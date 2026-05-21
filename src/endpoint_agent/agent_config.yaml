@@ -1,0 +1,95 @@
+# BlueTeam Endpoint Agent — Default Configuration
+# This file is read on startup and can be hot-reloaded without restarting the service.
+
+agent_id: "AGENT-001"
+nerve_center_url: "https://nervecenter.local:8443/api/v1"
+nerve_center_api_key: ""
+
+# --- Heartbeat ---
+heartbeat_interval: 60  # seconds
+
+# --- Logging ---
+log_dir: "C:\\ProgramData\\BlueTeam\\logs"
+log_max_bytes: 10485760  # 10 MB
+log_backup_count: 5
+
+# --- Real-Time File Watcher ---
+watched_directories:
+  - "C:\\Users"
+  - "C:\\Windows\\Temp"
+  - "C:\\ProgramData"
+watched_extensions:
+  - ".exe"
+  - ".dll"
+  - ".ps1"
+  - ".bat"
+  - ".cmd"
+  - ".vbs"
+  - ".js"
+  - ".scr"
+  - ".msi"
+watcher_exclusions:
+  - "C:\\ProgramData\\BlueTeam"
+
+# --- AV Engine ---
+yara_rules_dir: "C:\\ProgramData\\BlueTeam\\yara_rules"
+quarantine_dir: "C:\\ProgramData\\BlueTeam\\quarantine"
+hash_db_path: "C:\\ProgramData\\BlueTeam\\hash_cache.db"
+entropy_threshold: 7.5
+max_scan_file_size_mb: 100
+
+# --- Scheduled Scans ---
+quick_scan_paths:
+  - "C:\\Users"
+  - "C:\\Windows\\Temp"
+full_scan_paths:
+  - "C:\\"
+quick_scan_interval_hours: 4
+full_scan_interval_hours: 168  # Weekly
+
+# --- Process Monitor ---
+suspicious_process_names:
+  - "mimikatz"
+  - "psexec"
+  - "procdump"
+  - "lazagne"
+  - "bloodhound"
+  - "sharphound"
+  - "rubeus"
+suspicious_cmdline_patterns:
+  - "-enc "
+  - "-encodedcommand"
+  - "Invoke-WebRequest"
+  - "downloadstring"
+  - "bypass"
+  - "hidden"
+  - "certutil -urlcache"
+  - "bitsadmin /transfer"
+
+# --- Network Monitor ---
+known_bad_ports:
+  - 4444
+  - 5555
+  - 6666
+  - 8888
+  - 1337
+  - 31337
+c2_check_interval: 30
+
+# --- Registry Monitor ---
+watched_registry_keys:
+  - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+  - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+  - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+  - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+
+# --- Self-Protection ---
+self_protection_enabled: true
+watchdog_check_interval: 5
+
+# --- SOAR ---
+adhoc_script_require_signature: true
+adhoc_script_timeout: 300  # 5 minutes max
+
+# --- Updater ---
+update_check_interval_hours: 1
