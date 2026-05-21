@@ -1,0 +1,7 @@
+setup.py
+src/endpoint_agent/install_hook.py
+src/BlueTeamAgent.egg-info/PKG-INFO
+src/BlueTeamAgent.egg-info/SOURCES.txt
+src/BlueTeamAgent.egg-info/dependency_links.txt
+src/BlueTeamAgent.egg-info/top_level.txt
+src/endpoint_agent/install_hook.py

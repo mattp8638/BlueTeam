@@ -2,258 +2,158 @@ import os
 import sys
 import shutil
 import subprocess
-from src.endpoint_agent.logger import AgentLogger
-from src.endpoint_agent.agent_config import AgentConfig
+import ctypes
+import winreg
 
-logger = AgentLogger.get_logger("Installer")
-
-class AgentInstaller:
+class AgentDeployment:
     """
-    One-click installer for the BlueTeam Endpoint Agent.
+    Production Deployment Installer for the compiled BlueTeam Agent.
     
-    This script must be run with Administrator privileges. It performs:
-    1. Creates the C:\\ProgramData\\BlueTeam\\ directory tree.
-    2. Copies the agent source files to the install directory.
-    3. Creates default YARA rules and hash DB directories.
-    4. Registers the agent as a Windows Service (auto-start).
-    5. Configures the service to auto-restart on failure.
-    6. Optionally adds Windows Defender exclusions for the agent directory.
-    7. Starts the service.
+    This script is intended to be run AFTER build_release.py has generated the .exe files.
+    It takes the compiled binaries and deploys them to C:\\Program Files\\, locks them down,
+    and registers the uninstaller in the Windows Registry.
     """
     
-    INSTALL_ROOT = r"C:\ProgramData\BlueTeam"
     SERVICE_NAME = "BlueTeamAgent"
+    PROGRAM_FILES_DIR = r"C:\Program Files\BlueTeam"
+    PROGRAM_DATA_DIR = r"C:\ProgramData\BlueTeam"
+    REGISTRY_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\BlueTeamAgent"
     
-    SUBDIRECTORIES = [
-        "logs",
-        "quarantine",
-        "yara_rules",
-        "updates",
-        "scripts",
-    ]
+    DATA_SUBDIRS = ["logs", "quarantine", "yara_rules", "updates", "scripts"]
     
-    @classmethod
-    def install(cls, add_defender_exclusion: bool = True):
-        """Run the full installation sequence."""
-        logger.info("=" * 60)
-        logger.info("BlueTeam Endpoint Agent — Installation")
-        logger.info("=" * 60)
-        
-        if not cls._check_admin():
-            logger.error("FATAL: This installer must be run as Administrator.")
-            sys.exit(1)
-        
-        cls._create_directory_tree()
-        cls._copy_agent_files()
-        cls._create_default_yara_rules()
-        cls._register_windows_service()
-        cls._configure_failure_recovery()
-        
-        if add_defender_exclusion:
-            cls._add_defender_exclusion()
-        
-        cls._start_service()
-        
-        logger.info("=" * 60)
-        logger.info("Installation complete. BlueTeam Agent is now running.")
-        logger.info("=" * 60)
-    
-    @classmethod
-    def uninstall(cls):
-        """Remove the service and clean up."""
-        logger.info("Uninstalling BlueTeam Agent...")
-        
-        cls._stop_service()
-        cls._remove_windows_service()
-        cls._remove_defender_exclusion()
-        
-        # Optionally remove the install directory
-        # shutil.rmtree(cls.INSTALL_ROOT, ignore_errors=True)
-        logger.info("Uninstallation complete. Data preserved at: " + cls.INSTALL_ROOT)
-    
-    @classmethod
-    def _check_admin(cls) -> bool:
-        """Verify we are running with elevated privileges."""
+    @staticmethod
+    def is_admin():
         try:
-            import ctypes
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
-        except (AttributeError, OSError):
-            # Non-Windows or ctypes unavailable — assume OK for dev
-            logger.warning("Cannot verify admin status (non-Windows?). Proceeding anyway.")
-            return True
-    
+        except Exception:
+            return False
+
     @classmethod
-    def _create_directory_tree(cls):
-        """Create the ProgramData directory structure."""
-        logger.info(f"Creating directory tree at {cls.INSTALL_ROOT}...")
+    def install(cls):
+        print("=" * 60)
+        print("BlueTeam Endpoint Agent — Production Installer")
+        print("=" * 60)
         
-        for subdir in cls.SUBDIRECTORIES:
-            path = os.path.join(cls.INSTALL_ROOT, subdir)
+        if not cls.is_admin():
+            print("FATAL: This installer must be run as Administrator.")
+            sys.exit(1)
+            
+        # Ensure we are running from a location where the compiled binaries exist
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        release_dir = os.path.join(repo_root, "dist", "BlueTeam_Release")
+        
+        if not os.path.exists(os.path.join(release_dir, "BlueTeamAgent.exe")):
+            print(f"FATAL: Compiled binaries not found in {release_dir}.")
+            print("Please run build_release.py first.")
+            sys.exit(1)
+            
+        cls._create_directories()
+        cls._copy_binaries(release_dir)
+        cls._lockdown_program_files()
+        cls._create_registry_uninstaller()
+        cls._add_defender_exclusions()
+        cls._register_and_start_service()
+        
+        print("\n" + "=" * 60)
+        print("Installation complete! BlueTeam Agent is now running securely.")
+        print("=" * 60)
+
+    @classmethod
+    def _create_directories(cls):
+        print(f"\n[1/6] Creating deployment directories...")
+        os.makedirs(cls.PROGRAM_FILES_DIR, exist_ok=True)
+        print(f"  -> Created {cls.PROGRAM_FILES_DIR}")
+        
+        for subdir in cls.DATA_SUBDIRS:
+            path = os.path.join(cls.PROGRAM_DATA_DIR, subdir)
             os.makedirs(path, exist_ok=True)
-            logger.info(f"  Created: {path}")
-    
-    @classmethod
-    def _copy_agent_files(cls):
-        """Copy agent source to the install directory."""
-        source_dir = os.path.dirname(os.path.abspath(__file__))
-        dest_dir = os.path.join(cls.INSTALL_ROOT, "agent")
-        
-        logger.info(f"Copying agent files from {source_dir} to {dest_dir}...")
-        
-        if os.path.exists(dest_dir):
-            shutil.rmtree(dest_dir)
-        shutil.copytree(source_dir, dest_dir)
-        
-        logger.info(f"  Copied {len(os.listdir(dest_dir))} files.")
-    
-    @classmethod
-    def _create_default_yara_rules(cls):
-        """Write a starter YARA rule file to the rules directory."""
-        rules_dir = os.path.join(cls.INSTALL_ROOT, "yara_rules")
-        starter_rule_path = os.path.join(rules_dir, "default_signatures.yar")
-        
-        if os.path.exists(starter_rule_path):
-            logger.info("Default YARA rules already exist. Skipping.")
-            return
-        
-        starter_rule = """
-rule Ransomware_WannaCry_Strings {
-    meta:
-        description = "Detects WannaCry ransomware based on known strings"
-        severity = "critical"
-    strings:
-        $s1 = "WannaDecryptor" ascii
-        $s2 = "tasksche.exe" ascii
-        $s3 = ".wnry" ascii
-    condition:
-        any of them
-}
+        print(f"  -> Created {cls.PROGRAM_DATA_DIR} tree")
 
-rule Suspicious_PowerShell_Downloader {
-    meta:
-        description = "Detects obfuscated PowerShell download cradles"
-        severity = "high"
-    strings:
-        $s1 = "Invoke-WebRequest" ascii nocase
-        $s2 = "DownloadString" ascii nocase
-        $s3 = "-enc" ascii nocase
-        $s4 = "bypass" ascii nocase
-    condition:
-        2 of them
-}
+    @classmethod
+    def _copy_binaries(cls, release_dir):
+        print(f"\n[2/6] Copying compiled binaries to Program Files...")
+        for file_name in ["BlueTeamAgent.exe", "BlueTeamDashboard.exe", "BlueTeamUninstall.exe"]:
+            src = os.path.join(release_dir, file_name)
+            dst = os.path.join(cls.PROGRAM_FILES_DIR, file_name)
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+                print(f"  -> Copied {file_name}")
 
-rule Suspicious_API_Imports {
-    meta:
-        description = "Detects PE files importing process injection APIs"
-        severity = "high"
-    strings:
-        $api1 = "VirtualAlloc" ascii
-        $api2 = "CreateRemoteThread" ascii
-        $api3 = "WriteProcessMemory" ascii
-        $api4 = "NtUnmapViewOfSection" ascii
-    condition:
-        2 of them
-}
-"""
-        with open(starter_rule_path, "w", encoding="utf-8") as f:
-            f.write(starter_rule)
-        logger.info(f"  Created default YARA rules at {starter_rule_path}")
-    
     @classmethod
-    def _register_windows_service(cls):
-        """Register the agent as a Windows Service using sc.exe."""
-        python_exe = sys.executable
-        service_script = os.path.join(cls.INSTALL_ROOT, "agent", "service_wrapper.py")
-        
-        binpath = f'"{python_exe}" "{service_script}" --service'
-        
-        logger.info(f"Registering Windows Service '{cls.SERVICE_NAME}'...")
-        
+    def _lockdown_program_files(cls):
+        print(f"\n[3/6] Locking down {cls.PROGRAM_FILES_DIR} (ACL Enforcement)...")
+        # Grant SYSTEM Full Control, Administrators Full Control, and Users Read/Execute ONLY.
+        # This prevents malware running as a standard user from deleting the agent .exe files.
         try:
-            subprocess.run(
-                ["sc", "create", cls.SERVICE_NAME,
-                 f"binPath={binpath}",
-                 "start=auto",
-                 f"DisplayName=BlueTeam Endpoint Security Agent"],
-                check=True, capture_output=True, text=True
-            )
-            logger.info(f"  Service '{cls.SERVICE_NAME}' registered successfully.")
-        except subprocess.CalledProcessError as e:
-            if "already exists" in (e.stderr or ""):
-                logger.warning(f"  Service '{cls.SERVICE_NAME}' already registered. Skipping.")
-            else:
-                logger.error(f"  Failed to register service: {e.stderr}")
-    
-    @classmethod
-    def _configure_failure_recovery(cls):
-        """Configure the service to auto-restart on crash (up to 3 times)."""
-        logger.info("Configuring failure recovery (auto-restart on crash)...")
-        try:
-            subprocess.run(
-                ["sc", "failure", cls.SERVICE_NAME,
-                 "reset=86400",        # Reset failure count after 24 hours
-                 "actions=restart/5000/restart/10000/restart/30000"],  # Restart after 5s, 10s, 30s
-                check=True, capture_output=True, text=True
-            )
-            logger.info("  Failure recovery configured: restart after 5s / 10s / 30s")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"  Failed to configure recovery: {e.stderr}")
-    
-    @classmethod
-    def _add_defender_exclusion(cls):
-        """Add our install directory to Windows Defender exclusions."""
-        logger.info(f"Adding Windows Defender exclusion for {cls.INSTALL_ROOT}...")
-        try:
-            subprocess.run(
-                ["powershell", "-Command",
-                 f"Add-MpPreference -ExclusionPath '{cls.INSTALL_ROOT}'"],
-                check=True, capture_output=True, text=True
-            )
-            logger.info("  Defender exclusion added.")
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            logger.warning(f"  Could not add Defender exclusion: {e}")
-    
-    @classmethod
-    def _remove_defender_exclusion(cls):
-        try:
-            subprocess.run(
-                ["powershell", "-Command",
-                 f"Remove-MpPreference -ExclusionPath '{cls.INSTALL_ROOT}'"],
-                capture_output=True, text=True
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-    
-    @classmethod
-    def _start_service(cls):
-        logger.info(f"Starting service '{cls.SERVICE_NAME}'...")
-        try:
-            subprocess.run(["sc", "start", cls.SERVICE_NAME],
-                           check=True, capture_output=True, text=True)
-            logger.info("  Service started.")
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"  Could not start service (may already be running): {e.stderr}")
-    
-    @classmethod
-    def _stop_service(cls):
-        try:
-            subprocess.run(["sc", "stop", cls.SERVICE_NAME],
-                           capture_output=True, text=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-    
-    @classmethod
-    def _remove_windows_service(cls):
-        try:
-            subprocess.run(["sc", "delete", cls.SERVICE_NAME],
-                           capture_output=True, text=True)
-            logger.info(f"  Service '{cls.SERVICE_NAME}' removed.")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
+            # First reset to inherited
+            subprocess.run(["icacls", cls.PROGRAM_FILES_DIR, "/reset", "/t", "/c", "/q"], capture_output=True)
+            # Remove inheritance and copy ACEs
+            subprocess.run(["icacls", cls.PROGRAM_FILES_DIR, "/inheritance:d", "/q"], capture_output=True)
+            # Remove Users modify rights, grant only RX (Read & Execute)
+            subprocess.run(["icacls", cls.PROGRAM_FILES_DIR, "/grant:r", "SYSTEM:(OI)(CI)F", "/q"], capture_output=True)
+            subprocess.run(["icacls", cls.PROGRAM_FILES_DIR, "/grant:r", "Administrators:(OI)(CI)F", "/q"], capture_output=True)
+            subprocess.run(["icacls", cls.PROGRAM_FILES_DIR, "/grant:r", "Users:(OI)(CI)RX", "/q"], capture_output=True)
+            print("  -> ACLs successfully tightened.")
+        except Exception as e:
+            print(f"  -> Warning: Failed to apply ACLs: {e}")
 
+    @classmethod
+    def _create_registry_uninstaller(cls):
+        print(f"\n[4/6] Registering Application in Windows Control Panel...")
+        try:
+            key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, cls.REGISTRY_KEY)
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "BlueTeam Endpoint Security Agent")
+            winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.0.0")
+            winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "BlueTeam Cyber")
+            # Point uninstall string to our compiled uninstaller
+            uninstall_string = f'"{os.path.join(cls.PROGRAM_FILES_DIR, "BlueTeamUninstall.exe")}"'
+            winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, uninstall_string)
+            winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, os.path.join(cls.PROGRAM_FILES_DIR, "BlueTeamAgent.exe"))
+            winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+            winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+            winreg.CloseKey(key)
+            print("  -> Registry keys injected successfully.")
+        except Exception as e:
+            print(f"  -> Warning: Failed to write to Registry: {e}")
+
+    @classmethod
+    def _add_defender_exclusions(cls):
+        print(f"\n[5/6] Configuring Windows Defender Exclusions...")
+        try:
+            subprocess.run([
+                "powershell", "-Command",
+                f"Add-MpPreference -ExclusionPath '{cls.PROGRAM_FILES_DIR}'; Add-MpPreference -ExclusionPath '{cls.PROGRAM_DATA_DIR}'"
+            ], capture_output=True)
+            print("  -> Exclusions applied.")
+        except Exception as e:
+            print(f"  -> Warning: Failed to add exclusions: {e}")
+
+    @classmethod
+    def _register_and_start_service(cls):
+        print(f"\n[6/6] Registering and Starting Windows Service...")
+        
+        # Stop and delete if it already exists
+        subprocess.run(["sc", "stop", cls.SERVICE_NAME], capture_output=True)
+        subprocess.run(["sc", "delete", cls.SERVICE_NAME], capture_output=True)
+        
+        agent_exe = os.path.join(cls.PROGRAM_FILES_DIR, "BlueTeamAgent.exe")
+        binpath = f'"{agent_exe}" --service'
+        
+        try:
+            subprocess.run(
+                ["sc", "create", cls.SERVICE_NAME, f"binPath={binpath}", "start=auto", "DisplayName=BlueTeam Endpoint Security Agent"],
+                check=True, capture_output=True
+            )
+            # Configure auto-restart
+            subprocess.run(
+                ["sc", "failure", cls.SERVICE_NAME, "reset=86400", "actions=restart/5000/restart/10000/restart/30000"],
+                check=True, capture_output=True
+            )
+            # Start it!
+            subprocess.run(["sc", "start", cls.SERVICE_NAME], check=True, capture_output=True)
+            print(f"  -> Service '{cls.SERVICE_NAME}' is now running.")
+        except subprocess.CalledProcessError as e:
+            print(f"  -> Error registering service: {e}")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "uninstall":
-        AgentInstaller.uninstall()
-    else:
-        AgentInstaller.install()
+    AgentDeployment.install()

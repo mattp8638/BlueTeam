@@ -1,6 +1,7 @@
 import os
 import yaml
 import threading
+import socket
 
 class AgentConfig:
     """
@@ -20,7 +21,7 @@ class AgentConfig:
     ]
     
     DEFAULTS = {
-        "agent_id": "AGENT-UNREGISTERED",
+        "agent_id": socket.gethostname(),
         "nerve_center_url": "https://localhost:8443/api/v1",
         "nerve_center_api_key": "",
         
@@ -52,7 +53,7 @@ class AgentConfig:
         
         # Scheduled Scans
         "quick_scan_paths": [r"C:\Users", r"C:\Windows\Temp"],
-        "full_scan_paths": [r"C:\"],
+            "full_scan_paths": [r"C:\\"],
         "quick_scan_interval_hours": 4,
         "full_scan_interval_hours": 168,  # Weekly
         

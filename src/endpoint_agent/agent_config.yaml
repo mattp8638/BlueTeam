@@ -2,7 +2,7 @@
 # This file is read on startup and can be hot-reloaded without restarting the service.
 
 agent_id: "AGENT-001"
-nerve_center_url: "https://nervecenter.local:8443/api/v1"
+nerve_center_url: "http://127.0.0.1:8000/api/v1"
 nerve_center_api_key: ""
 
 # --- Heartbeat ---
