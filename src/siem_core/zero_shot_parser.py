@@ -1,4 +1,7 @@
 import json
+import re
+import requests
+import os
 from datetime import datetime, timezone
 
 class ZeroShotParser:
@@ -7,15 +10,52 @@ class ZeroShotParser:
     Maps completely unrecognized, proprietary log strings into the strict OCSF schema.
     """
     
+    # Allow URL to be configurable via environment variable
+    LLM_API_URL = os.environ.get("LLM_API_URL", "http://localhost:11434/api/generate")
+
+    @classmethod
+    def _call_llm(cls, prompt: str) -> str:
+        """Helper method to invoke the configured local/remote LLM."""
+        try:
+            response = requests.post(
+                cls.LLM_API_URL,
+                json={
+                    "model": "blueteam-llm", # Assumed model name
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json"
+                },
+                timeout=5
+            )
+            response.raise_for_status()
+            return response.json().get("response", "{}")
+        except requests.exceptions.RequestException as e:
+            # Fallback to simulation if AI is offline
+            return None
+
     @classmethod
     def parse_unstructured_log(cls, raw_log: str) -> dict:
         """
-        MOCK SLM INFERENCE
-        In production, this queries the local fine-tuned 8B model to extract entities.
+        Queries the local fine-tuned 8B model to extract entities.
         """
         print("\n[Zero-Shot SLM] Analyzing unstructured proprietary log...")
         
-        # Simulated extraction logic
+        # 1. Attempt to use the real AI Model
+        prompt = f"""
+        Act as an expert cybersecurity parser. Extract entities from the following syslog and format it as a valid OCSF JSON payload.
+        Only output the JSON.
+        Log: {raw_log}
+        """
+
+        ai_response = cls._call_llm(prompt)
+        if ai_response:
+            try:
+                print("[Zero-Shot SLM] Successfully mapped raw log using LLM.")
+                return json.loads(ai_response)
+            except json.JSONDecodeError:
+                print("[Zero-Shot SLM] Warning: LLM returned invalid JSON. Falling back to rules.")
+
+        # 2. Simulated Fallback extraction logic
         ocsf_event = {
             "time": datetime.now(timezone.utc).isoformat(),
             "class_id": 0,  # Unknown base
@@ -36,7 +76,6 @@ class ZeroShotParser:
                 ocsf_event["status"] = "Success"
                 
             # Naive IP extraction for mock
-            import re
             ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', raw_log)
             if ip_match:
                 ocsf_event["src_endpoint"] = {"ip": ip_match.group(0)}
