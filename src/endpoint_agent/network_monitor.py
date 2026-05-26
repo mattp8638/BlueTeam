@@ -238,7 +238,7 @@ class NetworkMonitor:
                 # Per-connection errors should not abort the entire scan
                 logger.debug("Error evaluating connection: %s", exc)
 
-    def _evaluate_connection(self, conn: psutil._common.sconn, now: float) -> None:
+    def _evaluate_connection(self, conn: "any", now: float) -> None:
         """Evaluate a single connection against all threat indicators.
 
         Args:
