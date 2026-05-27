@@ -1,16 +1,22 @@
-# React + Vite
+# BlueTeam Nerve Center Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The Nerve Center is the "Single Pane of Glass" React Application for the BlueTeam platform. It provides high-performance data visualizations and real-time monitoring of fleet agents, SIEM alerts, and Incident Response cases.
 
-Currently, two official plugins are available:
+## Core Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+*   **Real-time WebSocket Streaming:** The dashboard utilizes an active WebSocket connection (`ws://127.0.0.1:8000/ws/fleet`) to the FastAPI backend. It completely eliminates HTTP polling, meaning telemetry, alerts, and agent health metrics are pushed instantly to the UI as they happen.
+*   **Interactive Visualizations:** Powered by `recharts` for seamless area and bar charting of threat metrics over time.
+*   **Glassmorphism UI:** Built with custom Vanilla CSS and `lucide-react` icons for a premium, futuristic aesthetic.
 
-## React Compiler
+## Setup & Running
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+This project is bundled with Vite.
 
-## Expanding the ESLint configuration
+```bash
+# 1. Install dependencies
+npm install
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# 2. Run the development server
+npm run dev &
+```
+*Note: Make sure the FastAPI backend is running first so the WebSocket connection does not immediately drop.*

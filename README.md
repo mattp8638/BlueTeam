@@ -8,14 +8,16 @@ The platform is divided into five distinct domains:
 
 1. **Endpoint Agent (`src/endpoint_agent`)**
    - A physical, deployable Windows agent built in Python.
-   - **Capabilities**: Real-time File Monitoring, YARA-based AV Engine, Process & Network Monitoring, Registry Watcher, and Self-Protection.
+   - **Capabilities**: Real-time File Monitoring, concurrent YARA/Heuristics AV Engine, Process & Network Monitoring, Registry Watcher, and Self-Protection.
+   - **Networking**: Utilizes HTTP(S) POST requests to transmit telemetry, backed by an **Offline SQLite Buffer** that queues events if the central server goes down.
    - **System Tray GUI**: A user-facing dashboard for the endpoint agent built with `pystray` and `tkinter`.
    - **Compiler**: Bundled into a native Windows `.msi` installer using `cx_Freeze`.
 
 2. **SIEM Core (`src/siem_core`)**
-   - Centralized data ingestion pipeline simulating a high-throughput ClickHouse Data Lake.
+   - Centralized data ingestion pipeline.
    - Normalizes logs using the OCSF (Open Cybersecurity Schema Framework) standard.
    - Cross-references incoming telemetry against MITRE ATT&CK rules.
+   - **AI Integration**: Uses an in-memory HuggingFace `transformers` pipeline to lazily load `MattP30098638/PenTest-AI`. The AI dynamically scores logs and escalates threats alongside standard static rules.
 
 3. **SOAR Engine (`src/soar_core`)**
    - Automated playbook execution engine utilizing Directed Acyclic Graphs (DAGs).
@@ -23,57 +25,34 @@ The platform is divided into five distinct domains:
 
 4. **IR Tickets (`src/ir_core`)**
    - Case management system that escalates severe SIEM alerts into human-assignable Incident Response cases.
+   - **Cryptographic Ledger**: Utilizes a Merkle Hash Chain (`SHA-256(payload || prev_hash)`) to ensure all forensic logs and actions are mathematically immutable.
+   - **AI Reporting**: Employs local Language Models to automatically generate Root Cause Analyses (RCA) and compliance drafts.
 
 5. **Nerve Center (`src/nerve_center`)**
    - The Central Command Dashboard.
    - **Backend**: High-performance FastAPI server bridging the Python core logic to the web.
-   - **Frontend**: A state-of-the-art React (Vite) Single Page Application featuring interactive data visualization (`recharts`), live telemetry streams, and glassmorphism UI/UX.
+   - **Frontend**: A state-of-the-art React (Vite) Single Page Application featuring interactive data visualization.
+   - **Real-Time Streaming**: Connected via WebSockets (`/ws/fleet`), eliminating the need for UI polling and delivering instant visual updates when threats are detected.
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **Core Backend**: Python 3.14+
+- **Core Backend**: Python 3.12+
+- **AI/ML**: HuggingFace `transformers`, `torch`
 - **Agent GUI**: Custom `tkinter` and `pystray`
 - **Agent Compiler**: `cx_Freeze` (for MSI generation)
 - **Database Simulation**: SQLite (ClickHouse / Data Lake mocking)
-- **Web API**: FastAPI, Uvicorn, Pydantic
+- **Web API**: FastAPI, Uvicorn, Pydantic, WebSockets
 - **Web Frontend**: React, Vite, Recharts, Lucide-React, Vanilla CSS (Custom Design System)
 
 ---
 
-## ⚙️ How to Run the Platform
+## ⚙️ Documentation
 
-### 1. Building the Endpoint Agent (MSI)
-To compile the endpoint agent into a distributable `.msi` Windows installer:
-```powershell
-# Ensure you are in the project root
-cd C:\Users\matt_admin\Documents\GitHub\BlueTeam\
+For detailed instructions on how to start the platform and compile the agent, please refer to the [USER_GUIDE.md](USER_GUIDE.md).
 
-# Install dependencies (ensure pywin32 is installed)
-pip install -r requirements.txt
-pip install pywin32 cx_Freeze
-
-# Run the build
-python setup.py bdist_msi
-```
-The compiled installer will be located in the `dist/` directory. 
-
-### 2. Starting the Nerve Center API
-The FastAPI backend acts as the bridge receiving agent telemetry and serving the React frontend.
-```powershell
-cd C:\Users\matt_admin\Documents\GitHub\BlueTeam\src\nerve_center\api
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
-```
-
-### 3. Starting the React Dashboard
-The premium web dashboard connects to the FastAPI backend.
-```powershell
-cd C:\Users\matt_admin\Documents\GitHub\BlueTeam\src\nerve_center\frontend
-npm install
-npm run dev
-```
-Open your browser to `http://localhost:3000`.
+For information on security boundaries, guardrails, and production deployment best practices, please refer to the [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -95,8 +74,4 @@ Open your browser to `http://localhost:3000`.
   1. Open the BlueTeam System Tray icon on the endpoint.
   2. Navigate to **Settings**.
   3. Ensure the **Nerve Center API URL** is exactly `http://127.0.0.1:8000/api/v1`.
-  4. Ensure the React UI is running and checking `http://127.0.0.1:8000/api/fleet`.
-
-### Agent Configuration Changes Not Saving
-- **Cause**: The agent was installed to `C:\Program Files\BlueTeamAgent\`. Standard users cannot modify files here due to Windows UAC.
-- **Fix**: The system is designed to look for an override config in `C:\ProgramData\BlueTeam\agent_config.yaml`. Edit the file located in `ProgramData` instead, as it is globally writable and supersedes the `Program Files` defaults.
+  4. Ensure the React UI is running and checking the WebSocket endpoint.

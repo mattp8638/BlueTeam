@@ -1,30 +1,26 @@
-# What's Next: Picking Up Where We Left Off
+# What's Next: Future Scaling & Roadmap
 
-We have successfully built the entire end-to-end architecture: the physical MSI agent, the backend ingestion data lakes, and the React-powered Nerve Center Web App.
+We have successfully built and integrated the core architecture, including real network telemetry, offline buffering, WebSocket streaming, and in-memory Hugging Face AI integrations.
 
-However, **the physical agents are not yet reporting to the dashboard.**
-
-## Why is it not reporting?
-Currently, the Endpoint Agent's source code (`heartbeat.py` and `telemetry_collector.py`) is written using "dummy" internal Python references (e.g., `self.nerve_center.receive_heartbeat()`). It is not yet making actual HTTP network requests. 
+As the platform moves towards production deployment capable of handling thousands of endpoints, the following architectural upgrades are required.
 
 ## Action Items for Next Session
 
-### 1. Implement Network Telemetry (The Fix)
-- Open `src/endpoint_agent/heartbeat.py`.
-- Import the `requests` library.
-- Replace the dummy internal method call with a real HTTP POST request to `self.config.get("nerve_center_url") + "/heartbeat"`.
-- Do the exact same thing in `telemetry_collector.py` for `/telemetry`.
-- **Note:** After making these source code changes, you must rebuild the `.msi` and reinstall the agent so the compiled binary has the real networking code!
+### 1. Replace ClickHouse Mock with Real Database
+- **Context:** The SIEM backend is currently using `ClickHouseDataLakeMock` backed by SQLite. Under heavy concurrent load, SQLite will suffer from `database is locked` errors.
+- **Action:** Install the official `clickhouse-driver` or `clickhouse-connect` library. Stand up a real ClickHouse instance (via Docker) and rewire `src/siem_core/clickhouse_client.py` to point to the remote cluster.
 
-### 2. LLM Cybersecurity AI Integration
-- You mentioned earlier you have a Kaggle-trained cybersecurity LLM.
-- We need to integrate this LLM into `siem_core`.
-- The LLM should automatically parse raw syslog events in the Data Lake, determine if they are malicious, and autonomously trigger the SOAR playbooks.
+### 2. Implement a Message Broker (Kafka)
+- **Context:** Currently, endpoint agents push telemetry directly to the FastAPI Nerve Center. This synchronous HTTP coupling will crash the web server during a volumetric spike (e.g., a massive malware outbreak generating millions of logs).
+- **Action:** Deploy Apache Kafka.
+  - Agents will push `syslog` events to a `raw_telemetry` Kafka topic.
+  - The SIEM will consume from this topic, run the AI detection, and push alerts to a `siem_alerts` topic.
+  - The Nerve Center will read from `siem_alerts` to broadcast via WebSockets.
 
-### 3. Replace ClickHouse Mock with Real Database
-- The backend is currently using `ClickHouseDataLakeMock` backed by SQLite.
-- If you intend to deploy this to production with thousands of agents, we need to swap the SQLite driver for the official `clickhouse-driver` so it can handle millions of rows per second.
+### 3. SOAR Playbook Execution API Wiring
+- **Context:** The UI SOAR dashboard currently simulates executing playbooks via the API. The core DAG runner logic exists in `src/soar_core`, but it isn't wired to the web button.
+- **Action:** Wire the `POST /api/soar/execute` FastAPI endpoint to the `DagOrchestrator` in `src/soar_core` so that clicking the "Isolate Host" button in the React UI actually executes physical Python isolation scripts on the endpoint via reverse-shell or polling commands.
 
-### 4. SOAR Playbook Execution
-- The UI SOAR dashboard currently simulates executing playbooks via the API.
-- We need to wire the `/api/soar/execute` FastAPI endpoint to the DAG runner in `src/soar_core` so that clicking the button in the React UI actually executes physical Python isolation scripts.
+### 4. Enhance the AI Reporting Generator
+- **Context:** The AI Anomaly Detection is fully integrated, but the `AIReportingEngine` is currently using a placeholder generation model (`gpt2`).
+- **Action:** Once your custom text-generation model is fully trained for Root Cause Analysis, update the pipeline declaration in `src/ir_core/ai_reporting_engine.py` to point to your new model tag, completing the full end-to-end AI automation flow.

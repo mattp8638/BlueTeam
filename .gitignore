@@ -5,7 +5,8 @@
 *.pyd
 __pycache__/
 # Ignore the agent configuration file which may contain sensitive information
-src/endpoint_agent/agent_config.py*.db
+src/endpoint_agent/agent_config.py
+*.db
 *.enc
 vault_storage/
 C:\ProgramData
