@@ -1,10 +1,12 @@
 import re
+import json
+from src.siem_core.ai_classifier import LocalAIClassifier
 
 class DetectionEngine:
     """
     Real-Time Threat Detection Engine.
     Filters, tags, and investigates incoming OCSF telemetry against Sigma-style rules
-    before they are committed to the data lake.
+    AND the local HuggingFace AI classification model.
     """
     
     def __init__(self):
@@ -30,20 +32,20 @@ class DetectionEngine:
 
     def scan_event(self, ocsf_event: dict) -> dict:
         """
-        Scans an incoming OCSF event against all rules.
+        Scans an incoming OCSF event against all static rules and the AI model.
         Applies filtering, MITRE ATT&CK tagging, and alerting metadata.
         """
         matched_rules = []
         tags = set()
         highest_severity = "Low"
         
+        # 1. Static Rule Evaluation
         for rule in self.rules:
             try:
                 if rule["condition"](ocsf_event):
                     matched_rules.append(rule["rule_id"])
                     tags.update(rule["tags"])
                     
-                    # Elevate severity if rule demands it
                     if rule["severity"] == "Critical":
                         highest_severity = "Critical"
                     elif rule["severity"] == "High" and highest_severity not in ["Critical"]:
@@ -52,10 +54,34 @@ class DetectionEngine:
                         highest_severity = "Medium"
                         
             except Exception as e:
-                # Malformed event or rule error, skip safely
                 continue
                 
-        # Annotate the event with investigative context
+        # 2. AI Model Evaluation
+        # Convert the event to a string representation for the NLP model
+        log_text = json.dumps(ocsf_event)
+        ai_result = LocalAIClassifier.classify_log(log_text)
+
+        if ai_result:
+            label = ai_result.get("label", "").upper()
+            score = ai_result.get("score", 0.0)
+
+            # Assuming the model returns labels like 'MALICIOUS', 'ANOMALY', etc.
+            if label in ["MALICIOUS", "ANOMALY", "ATTACK"] and score > 0.85:
+                print(f"[Detection Engine] AI Model flagged event! Label: {label} (Confidence: {score:.2f})")
+                matched_rules.append(f"AI_MODEL_{label}")
+                tags.add("AI_Generated")
+
+                # AI overrides to High severity if it wasn't already Critical
+                if highest_severity not in ["Critical", "High"]:
+                    highest_severity = "High"
+
+                # Annotate the specific AI score into the event
+                if "ai_analysis" not in ocsf_event:
+                    ocsf_event["ai_analysis"] = {}
+                ocsf_event["ai_analysis"]["classification"] = label
+                ocsf_event["ai_analysis"]["confidence"] = score
+
+        # 3. Final Annotation
         ocsf_event["enrichment"] = {
             "matched_rules": matched_rules,
             "mitre_tags": list(tags)
@@ -79,6 +105,5 @@ if __name__ == "__main__":
     }
     
     enriched_event = engine.scan_event(mock_auth_fail)
-    import json
     print("\n--- Enriched Event ---")
     print(json.dumps(enriched_event, indent=2))
