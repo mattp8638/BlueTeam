@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Activity, Monitor, AlertTriangle, PlayCircle, Briefcase, X, Terminal } from 'lucide-react'
+import { Shield, Activity, Monitor, AlertTriangle, PlayCircle, Briefcase, X, Terminal, Cpu, Zap } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import './index.css'
 
@@ -120,41 +120,45 @@ function App() {
   const renderSiemDashboard = () => (
     <div className="fade-in">
       <div className="dashboard-grid">
-        <div className="widget-half chart-card">
-          <h3 style={{marginBottom: '1rem', color: 'var(--text-muted)'}}>Threats Prevented (24h)</h3>
-          <ResponsiveContainer width="100%" height="80%">
-            <AreaChart data={dummyChartData}>
-              <defs>
-                <linearGradient id="colorThreats" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--accent-red)" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="var(--accent-red)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="time" stroke="var(--text-muted)" />
-              <YAxis stroke="var(--text-muted)" />
-              <Tooltip contentStyle={{backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-light)'}} />
-              <Area type="monotone" dataKey="threats" stroke="var(--accent-red)" fillOpacity={1} fill="url(#colorThreats)" />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div className="widget-half">
+          <div className="chart-card glass-panel ai-glow">
+            <h3 style={{marginBottom: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <Cpu className="ai-icon-spin" size={18} /> AI Anomaly Detection (24h)
+            </h3>
+            <ResponsiveContainer width="100%" height="80%">
+              <AreaChart data={dummyChartData}>
+                <defs>
+                  <linearGradient id="colorThreats" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent-purple)" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="var(--accent-purple)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="time" stroke="var(--text-muted)" />
+                <YAxis stroke="var(--text-muted)" />
+                <Tooltip contentStyle={{backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--accent-purple)', boxShadow: '0 0 10px rgba(139, 92, 246, 0.3)'}} />
+                <Area type="monotone" dataKey="threats" stroke="var(--accent-purple)" fillOpacity={1} fill="url(#colorThreats)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
         
         <div className="widget-half">
-          <div className="telemetry-console" ref={consoleRef}>
+          <div className="telemetry-console glass-panel" ref={consoleRef}>
             <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px'}}>
               <Terminal size={14} /> LIVE INGESTION STREAM
             </div>
             {telemetryLogs.map((log, idx) => (
               <div key={idx} className="telemetry-line">
-                <span className="log-time">[{log.time}]</span>
-                <span className={`log-${log.type}`}>{log.msg}</span>
+                <span className="log-time">[{new Date().toLocaleTimeString()}]</span>
+                <span className="log-info">{JSON.stringify(log)}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="table-container">
+      <div className="table-container glass-panel">
         <table className="data-table">
           <thead>
             <tr>
@@ -167,8 +171,10 @@ function App() {
             </tr>
           </thead>
           <tbody>
-            {siemData.map(alert => (
-              <tr key={alert.id}>
+            {siemData.map(alert => {
+              const isAI = alert.rule && alert.rule.includes("AI_");
+              return (
+              <tr key={alert.id} className={isAI ? "tr-ai-flagged" : ""}>
                 <td style={{fontFamily: 'monospace', color: 'var(--text-muted)'}}>#{alert.id}</td>
                 <td style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>{alert.timestamp}</td>
                 <td style={{fontWeight: 600, color: 'var(--text-primary)'}}>{alert.source}</td>
@@ -177,10 +183,22 @@ function App() {
                     {alert.severity.toUpperCase()}
                   </span>
                 </td>
-                <td style={{color: 'var(--accent-purple)', fontWeight: 500}}>{alert.rule}</td>
+                <td>
+                  {isAI ? (
+                    <div>
+                      <span className="ai-badge"><Zap size={12}/> AI DETECTED</span>
+                      <div style={{color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '4px'}}>{alert.rule}</div>
+                      <div className="confidence-bar-container">
+                        <div className="confidence-bar-fill" style={{width: '94%'}}></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{color: 'var(--accent-blue)', fontWeight: 500}}>{alert.rule}</span>
+                  )}
+                </td>
                 <td><button className="btn-action" onClick={() => handleTriage(alert)}>Triage Event</button></td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>
@@ -259,6 +277,7 @@ function App() {
 
   return (
     <div className="app-container">
+      <div className="hud-overlay"></div>
       {/* Sidebar */}
       <nav className="sidebar">
         <div className="brand">
