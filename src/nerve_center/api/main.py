@@ -2,7 +2,19 @@ import os
 import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional, Any
+import threading
+
+# Huggingface pipeline (optional)
+classifier = None
+classifier_lock = threading.Lock()
+zero_shot = None
+zero_shot_lock = threading.Lock()
+id2label_map = {}
+label_map_source = None
+label_map_path = os.environ.get("PEN_TEST_AI_LABEL_MAP", os.path.join(os.path.dirname(__file__), "label_map.json"))
+model_source = None
 
 # Ensure parent directory is in path to import core modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
@@ -27,8 +39,8 @@ app.add_middleware(
 
 # In-memory fleet tracker
 fleet_agents = {
-    "agent-001": {"id": "agent-001", "hostname": "WIN-DESKTOP-01", "status": "online", "last_seen": datetime.utcnow().isoformat() + "Z", "av_hits": 2, "vulns": 5},
-    "agent-002": {"id": "agent-002", "hostname": "SRV-EXCHANGE-01", "status": "online", "last_seen": datetime.utcnow().isoformat() + "Z", "av_hits": 0, "vulns": 12},
+    "agent-001": {"id": "agent-001", "hostname": "WIN-DESKTOP-01", "status": "online", "last_seen": datetime.now(timezone.utc).isoformat(), "av_hits": 2, "vulns": 5},
+    "agent-002": {"id": "agent-002", "hostname": "SRV-EXCHANGE-01", "status": "online", "last_seen": datetime.now(timezone.utc).isoformat(), "av_hits": 0, "vulns": 12},
 }
 
 # --- AGENT INGESTION ENDPOINTS ---
@@ -46,7 +58,7 @@ async def receive_heartbeat(request: Request):
         }
     
     fleet_agents[agent_id]["status"] = "online"
-    fleet_agents[agent_id]["last_seen"] = datetime.utcnow().isoformat() + "Z"
+    fleet_agents[agent_id]["last_seen"] = datetime.now(timezone.utc).isoformat()
     fleet_agents[agent_id]["vitals"] = payload.get("vitals", {})
     return {"status": "ok"}
 
@@ -57,6 +69,239 @@ async def receive_telemetry(request: Request):
     if db:
         db.batch_insert([payload])
     return {"status": "ok"}
+
+
+# --- HUGGINGFACE CLASSIFICATION ENDPOINT ---
+@app.on_event("startup")
+async def load_hf_model():
+    """Try to load the Huggingface pipeline at startup. If `transformers` is not installed
+    or loading fails, `classifier` will remain None and the endpoint will return an error.
+    """
+    global classifier
+    try:
+        from transformers import pipeline
+        # default to local AI/ folder at repo root if present
+        default_local = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..", "AI"))
+        model_name = os.environ.get("PEN_TEST_AI_MODEL", default_local)
+
+        # determine device: env PEN_TEST_AI_DEVICE can be -1 (cpu) or an int for GPU index or strings like 'cpu'/'cuda:0'
+        device_env = os.environ.get("PEN_TEST_AI_DEVICE")
+        device = -1
+        if device_env is not None:
+            try:
+                if device_env.lower() in ("cpu", "-1"):
+                    device = -1
+                elif device_env.lower().startswith("cuda") or device_env.lower().startswith("gpu"):
+                    # support values like 'cuda:0' or 'gpu:0'
+                    idx = int(device_env.split(":")[-1])
+                    device = idx
+                else:
+                    device = int(device_env)
+            except Exception:
+                device = -1
+
+        # If model_name is a local directory, prefer loading tokenizer/model from there
+        if os.path.isdir(model_name):
+            print(f"Loading local model from: {model_name} (device={device})")
+            cls = pipeline("text-classification", model=model_name, tokenizer=model_name, device=device)
+        else:
+            print(f"Loading remote model '{model_name}' (device={device})")
+            cls = pipeline("text-classification", model=model_name, device=device)
+
+        # try to load a zero-shot classification pipeline for flexible classification
+        try:
+            zs_model = os.environ.get("PEN_TEST_AI_ZERO_SHOT", "facebook/bart-large-mnli")
+            zs = pipeline("zero-shot-classification", model=zs_model)
+            with zero_shot_lock:
+                zero_shot = zs
+            print(f"Loaded zero-shot model: {zs_model}")
+        except Exception as e:
+            zero_shot = None
+            print("INFO: zero-shot model not available:", e)
+        with classifier_lock:
+            classifier = cls
+        model_source = model_name
+        print(f"Loaded Huggingface model: {model_name}")
+
+        # try to pull id2label mapping from the model config
+        global id2label_map, label_map_source
+        try:
+            cfg = getattr(classifier, "model", None)
+            if cfg is not None:
+                cfg = cfg.config
+                model_map = getattr(cfg, "id2label", None) or {}
+                if isinstance(model_map, dict) and model_map:
+                    # normalize keys to int when possible
+                    normalized = {}
+                    for k, v in model_map.items():
+                        try:
+                            normalized[int(k)] = v
+                        except Exception:
+                            try:
+                                normalized[int(str(k))] = v
+                            except Exception:
+                                normalized[k] = v
+                    id2label_map.update(normalized)
+                    label_map_source = "model"
+        except Exception:
+            pass
+
+        # then try loading a local label map (JSON or pickle) to override or extend
+        try:
+            if os.path.exists(label_map_path):
+                import json, pickle
+                _, ext = os.path.splitext(label_map_path)
+                if ext.lower() in (".json",):
+                    with open(label_map_path, "r", encoding="utf-8") as fh:
+                        file_map = json.load(fh) or {}
+                else:
+                    # try pickle: could be a dict or a fitted sklearn LabelEncoder
+                    with open(label_map_path, "rb") as fh:
+                        file_map = pickle.load(fh)
+
+                normalized = {}
+                # If sklearn LabelEncoder, it exposes classes_
+                try:
+                    classes = getattr(file_map, "classes_", None)
+                    if classes is not None:
+                        # classes is an array-like of labels where index is numeric id
+                        for i, cls in enumerate(classes):
+                            normalized[int(i)] = str(cls)
+                    elif isinstance(file_map, dict):
+                        for k, v in file_map.items():
+                            try:
+                                normalized[int(k)] = v
+                            except Exception:
+                                normalized[k] = v
+                    else:
+                        # unsupported type, skip
+                        normalized = {}
+
+                except Exception:
+                    normalized = {}
+
+                if normalized:
+                    id2label_map.update(normalized)
+                    label_map_source = f"file:{label_map_path}"
+        except Exception as e:
+            print("WARNING: Could not load label map file:", e)
+
+    except Exception as e:
+        classifier = None
+        print("WARNING: Could not load Huggingface model:", e)
+
+
+@app.get("/api/v1/health")
+def health():
+    return {
+        "status": "ok",
+        "model_loaded": classifier is not None,
+        "model_source": model_source,
+        "zero_shot_loaded": zero_shot is not None,
+        "label_map_source": label_map_source,
+    }
+
+
+@app.post("/api/v1/labelmap/reload")
+def reload_labelmap():
+    """Reload label map from configured path (JSON or pickle) without restarting."""
+    global id2label_map, label_map_source
+    id2label_map = {}
+    label_map_source = None
+    try:
+        if os.path.exists(label_map_path):
+            import json, pickle
+            _, ext = os.path.splitext(label_map_path)
+            if ext.lower() in (".json",):
+                with open(label_map_path, "r", encoding="utf-8") as fh:
+                    file_map = json.load(fh) or {}
+            else:
+                with open(label_map_path, "rb") as fh:
+                    file_map = pickle.load(fh)
+
+            normalized = {}
+            classes = getattr(file_map, "classes_", None)
+            if classes is not None:
+                for i, cls in enumerate(classes):
+                    normalized[int(i)] = str(cls)
+            elif isinstance(file_map, dict):
+                for k, v in file_map.items():
+                    try:
+                        normalized[int(k)] = v
+                    except Exception:
+                        normalized[k] = v
+
+            if normalized:
+                id2label_map.update(normalized)
+                label_map_source = f"file:{label_map_path}"
+                return {"status": "ok", "label_map_source": label_map_source}
+
+        return {"status": "error", "error": "no valid label map found"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/v1/classify")
+async def classify(request: Request):
+    payload = await request.json()
+    text = payload.get("text") or payload.get("query") or payload.get("input")
+    mode = payload.get("mode", "classify")  # 'classify' | 'scores' | 'zero_shot'
+    top_k = int(payload.get("top_k", 1))
+    if not text:
+        return {"status": "error", "error": "no text provided"}
+
+    if classifier is None:
+        return {"status": "error", "error": "model not loaded"}
+
+    # run classification under a lock to avoid race conditions with model loading
+    try:
+        if mode == "zero_shot":
+            if zero_shot is None:
+                return {"status": "error", "error": "zero-shot model not available"}
+            # candidate labels are human-readable values of our mapping
+            candidates = list(id2label_map.values()) if id2label_map else None
+            if not candidates:
+                # fallback to raw LABEL_n names
+                candidates = [v for v in [r.get("label") for r in result] if v]
+            with zero_shot_lock:
+                zs_res = zero_shot(text, candidate_labels=candidates)
+            # zero-shot returns 'labels' and 'scores'
+            zs_out = []
+            for lbl, score in zip(zs_res.get("labels", []), zs_res.get("scores", [])):
+                zs_out.append({"label": lbl, "score": score})
+            return {"status": "ok", "mode": "zero_shot", "result": zs_out}
+
+        # normal classification: request top_k scores
+        with classifier_lock:
+            if top_k <= 1:
+                result = classifier(text)
+            else:
+                # pipeline supports top_k to return multiple label scores
+                result = classifier(text, top_k=top_k)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+    # Map generic LABEL_n to human-readable labels using id2label_map
+    mapped = []
+    for r in result:
+        lbl = r.get("label")
+        pretty = lbl
+        label_id = None
+        if isinstance(lbl, str) and lbl.startswith("LABEL_"):
+            try:
+                label_id = int(lbl.split("_", 1)[1])
+                # prefer mapping from file/model if available
+                pretty = id2label_map.get(label_id, id2label_map.get(str(label_id), lbl))
+            except Exception:
+                label_id = None
+                pretty = lbl
+        else:
+            # label already human-readable
+            pretty = lbl
+
+        mapped.append({"label": pretty, "label_id": label_id, "score": r.get("score")})
+
+    return {"status": "ok", "result": mapped, "raw": result, "mapping_source": label_map_source}
 
 # --- DASHBOARD ENDPOINTS ---
 
