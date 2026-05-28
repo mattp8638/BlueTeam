@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Activity, Monitor, AlertTriangle, PlayCircle, Briefcase, X, Terminal, Cpu, Zap } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
+import { Shield, Activity, Monitor, AlertTriangle, PlayCircle, Briefcase, X, Terminal, Cpu, Zap, MessageSquare, Send } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import './index.css'
 
 const dummyChartData = [
@@ -22,11 +22,40 @@ function App() {
   const [soarData, setSoarData] = useState([])
   const [irData, setIrData] = useState([])
 
+
   // Panel State
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelContent, setPanelContent] = useState(null)
   const [telemetryLogs, setTelemetryLogs] = useState([])
   const consoleRef = useRef(null)
+
+  // Chat State
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMessages, setChatMessages] = useState([{role: 'ai', text: 'Hello, I am the Nerve Center AI. How can I assist you with your security operations today?'}])
+  const [chatInput, setChatInput] = useState('')
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim()) return
+    const userMsg = { role: 'user', text: chatInput }
+    setChatMessages(prev => [...prev, userMsg])
+    setChatInput('')
+
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg.text })
+      })
+      const data = await res.json()
+      if (data.status === 'ok') {
+        setChatMessages(prev => [...prev, { role: 'ai', text: data.response }])
+      }
+    } catch (err) {
+      console.error(err)
+      setChatMessages(prev => [...prev, { role: 'ai', text: 'Error connecting to AI backend.' }])
+    }
+  }
+
 
   // Ping API
   useEffect(() => {
@@ -65,8 +94,10 @@ function App() {
       }
       setTelemetryLogs(prev => [...prev, newLog].slice(-50))
     }, 1500)
+
+
     return () => clearInterval(interval)
-  }, [activeTab])
+  }, [activeTab, fleetData, irData])
 
   // Auto-scroll telemetry
   useEffect(() => {
@@ -117,6 +148,80 @@ function App() {
   }
 
   // Renderers
+  const renderAntivirusDashboard = () => (
+    <div className="fade-in">
+      <div className="table-container">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Hostname</th>
+              <th>Agent ID</th>
+              <th>AV Hits</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fleetData.map(agent => (
+              <tr key={agent.id}>
+                <td>
+                  <div className={`status-badge ${agent.status === 'online' ? 'status-green' : 'status-red'}`}>
+                    <div className="status-dot-small" style={{backgroundColor: agent.status === 'online' ? 'var(--accent-green)' : 'var(--accent-red)'}}></div>
+                    {agent.status.toUpperCase()}
+                  </div>
+                </td>
+                <td style={{fontWeight: 600}}>{agent.hostname}</td>
+                <td style={{fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: '0.9rem'}}>{agent.id}</td>
+                <td>{agent.av_hits > 0 ? <span className="badge badge-red">{agent.av_hits}</span> : <span className="badge badge-gray">0</span>}</td>
+                <td><button className="btn-action" onClick={() => handleInvestigate(agent)}>Scan Host</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  const renderIrDashboard = () => (
+    <div className="fade-in">
+      <div className="table-container">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Assignee</th>
+              <th>Severity</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {irData.map((incident, idx) => (
+              <tr key={idx}>
+                <td style={{fontWeight: 600, color: 'var(--text-muted)'}}>{incident.id}</td>
+                <td style={{fontWeight: 600}}>{incident.title}</td>
+                <td>
+                  <div className={`status-badge ${incident.status === 'Open' ? 'status-red' : 'status-green'}`} style={{display: 'inline-flex'}}>
+                    <div className="status-dot-small" style={{backgroundColor: incident.status === 'Open' ? 'var(--accent-red)' : 'var(--accent-green)'}}></div>
+                    {incident.status.toUpperCase()}
+                  </div>
+                </td>
+                <td style={{color: 'var(--text-secondary)'}}>{incident.assignee}</td>
+                <td>
+                  <span className={`badge ${incident.severity === 'Critical' || incident.severity === 'High' ? 'badge-red' : 'badge-yellow'}`}>
+                    {incident.severity.toUpperCase()}
+                  </span>
+                </td>
+                <td><button className="btn-action" onClick={() => setPanelContent({title: 'Incident Details', details: [{label: 'ID', value: incident.id}, {label: 'Title', value: incident.title}]}) || setPanelOpen(true)}>View Ticket</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
   const renderSiemDashboard = () => (
     <div className="fade-in">
       <div className="dashboard-grid">
@@ -297,6 +402,10 @@ function App() {
           <div className={`nav-item ${activeTab === 'ir' ? 'active' : ''}`} onClick={() => setActiveTab('ir')}>
             <Briefcase size={18} /><span>IR Tickets</span>
           </div>
+
+          <div className={`nav-item ${activeTab === 'av' ? 'active' : ''}`} onClick={() => setActiveTab('av')}>
+            <Shield size={18} /><span>Antivirus</span>
+          </div>
         </div>
       </nav>
 
@@ -306,10 +415,16 @@ function App() {
           <div className="topbar-title">
             {activeTab === 'fleet' && 'Endpoint Fleet Overview'}
             {activeTab === 'siem' && 'Security Information & Event Management'}
+
             {activeTab === 'soar' && 'Security Orchestration, Automation, & Response'}
+            {activeTab === 'av' && 'Antivirus Telemetry'}
             {activeTab === 'ir' && 'Incident Response Management'}
           </div>
+
           <div className="user-profile">
+            <button className="chat-toggle-btn" onClick={() => setChatOpen(true)}>
+              <MessageSquare size={20} />
+            </button>
             <div className="status-badge" style={{
               color: apiStatus === 'online' ? 'var(--accent-green)' : 'var(--accent-red)',
               backgroundColor: apiStatus === 'online' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
@@ -324,8 +439,10 @@ function App() {
         <div className="content-scroll">
           {activeTab === 'fleet' && renderFleetDashboard()}
           {activeTab === 'siem' && renderSiemDashboard()}
+
           {activeTab === 'soar' && renderSoarDashboard()}
-          {activeTab === 'ir' && <p style={{color: 'var(--text-muted)'}}>IR Module Loading...</p>}
+          {activeTab === 'av' && renderAntivirusDashboard()}
+          {activeTab === 'ir' && renderIrDashboard()}
         </div>
       </main>
 
@@ -353,6 +470,37 @@ function App() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* AI Chat Panel */}
+      {chatOpen && <div className="side-panel-overlay" onClick={() => setChatOpen(false)}></div>}
+      <div className={`side-panel ${chatOpen ? 'open' : ''}`} style={{display: 'flex', flexDirection: 'column'}}>
+        <div className="panel-header">
+          <h2 className="panel-title" style={{display: 'flex', alignItems: 'center', gap: '8px'}}><Zap size={20} color="var(--accent-purple)"/> AI Assistant</h2>
+          <button className="close-btn" onClick={() => setChatOpen(false)}><X size={24} /></button>
+        </div>
+        <div className="panel-content" style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto'}}>
+          {chatMessages.map((msg, idx) => (
+            <div key={idx} className={`chat-message ${msg.role === 'user' ? 'chat-message-user' : 'chat-message-ai'}`}>
+              <div className="chat-bubble">
+                {msg.text}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="chat-input-area" style={{padding: '1.5rem', borderTop: '1px solid var(--border-light)', display: 'flex', gap: '8px', backgroundColor: 'rgba(26, 29, 45, 0.9)'}}>
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+            placeholder="Ask AI..."
+            style={{flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid var(--border-light)', backgroundColor: 'rgba(0,0,0,0.3)', color: 'white'}}
+          />
+          <button className="btn-action" style={{padding: '10px'}} onClick={handleSendMessage}>
+            <Send size={18} />
+          </button>
         </div>
       </div>
     </div>

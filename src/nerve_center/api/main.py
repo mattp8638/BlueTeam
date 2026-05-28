@@ -11,6 +11,8 @@ classifier = None
 classifier_lock = threading.Lock()
 zero_shot = None
 zero_shot_lock = threading.Lock()
+chat_model = None
+chat_model_lock = threading.Lock()
 id2label_map = {}
 label_map_source = None
 label_map_path = os.environ.get("PEN_TEST_AI_LABEL_MAP", os.path.join(os.path.dirname(__file__), "label_map.json"))
@@ -108,6 +110,12 @@ async def load_hf_model():
             print(f"Loading remote model '{model_name}' (device={device})")
             cls = pipeline("text-classification", model=model_name, device=device)
 
+        try:
+            chat_model = pipeline("text-generation", model="gpt2", device=device)
+        except Exception as e:
+            print(f"WARNING: Could not load chat model: {e}")
+
+        # try to load a zero-shot classification pipeline for flexible classification
         # try to load a zero-shot classification pipeline for flexible classification
         try:
             zs_model = os.environ.get("PEN_TEST_AI_ZERO_SHOT", "facebook/bart-large-mnli")
@@ -370,6 +378,36 @@ def triage_alert(alert_id: int):
 def investigate_agent(agent_id: str):
     return {"status": "success", "message": f"Forensic package requested from {agent_id}."}
 
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request):
+    payload = await request.json()
+    message = payload.get("message", "")
+
+    if not message:
+        return {"status": "error", "response": "No message provided."}
+
+    if chat_model is None:
+        return {"status": "ok", "response": f"[Static Mode] Acknowledged. Correlating events based on: '{message}'. SRV-EXCHANGE-01 requires an isolated scan."}
+
+    prompt = f"Nerve Center AI Security Assistant.\nUser: {message}\nAI:"
+    try:
+        with chat_model_lock:
+            # Generate text (max_new_tokens limits response size)
+            res = chat_model(prompt, max_new_tokens=50, num_return_sequences=1, truncation=True)
+            generated_text = res[0]['generated_text']
+
+            # Extract just the AI's response part
+            if "AI:" in generated_text:
+                response = generated_text.split("AI:")[-1].strip()
+            else:
+                response = generated_text.strip()
+
+            return {"status": "ok", "response": response}
+    except Exception as e:
+        return {"status": "error", "response": f"AI generation failed: {str(e)}"}
+
 if __name__ == "__main__":
+
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
