@@ -47,9 +47,18 @@ class TokenClusteringEngine:
         
         ticket_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        title = f"Root Incident: OCSF Class {alert.get('class_id')}"
-        severity = alert.get("severity", "Medium")
         
+        # Check if the alert was diagnosed by the AI model
+        ai_analysis = alert.get("ai_analysis", {})
+        if ai_analysis:
+            phase = ai_analysis.get("classification", "Unknown")
+            conf = ai_analysis.get("confidence", 0.0)
+            title = f"AI Flagged Threat: {phase.upper()} (Confidence: {conf*100:.1f}%)"
+            severity = alert.get("severity", "High")
+        else:
+            title = f"Root Incident: OCSF Class {alert.get('class_id')}"
+            severity = alert.get("severity", "Medium")
+            
         cursor.execute(
             "INSERT INTO tickets (ticket_id, title, status, severity, created_at) VALUES (?, ?, ?, ?, ?)",
             (ticket_id, title, "OPEN", severity, now)
@@ -57,5 +66,11 @@ class TokenClusteringEngine:
         conn.commit()
         
         print(f"[Clustering] Generated NEW root ticket: {ticket_id}")
-        MerkleLedger.append_transaction(ticket_id, "TICKET_CREATE", alert)
+        
+        # Build payload with AI diagnosis if present
+        payload_dict = dict(alert)
+        if ai_analysis:
+            payload_dict["ai_diagnosis"] = f"Automated AI classification identified attack phase: '{phase}' with confidence {conf*100:.1f}%."
+            
+        MerkleLedger.append_transaction(ticket_id, "TICKET_CREATE", payload_dict)
         return ticket_id

@@ -32,11 +32,14 @@ class ApprovalGateway:
         print(f" -> Awaiting BlueTeam signature on Ticket {ticket_id}...")
         
         # Simulate blocking wait (Micro-Runner thread blocks here)
-        timeout = 30 # 30 seconds for test purposes
+        timeout = 60 # 60 seconds for test purposes
         while timeout > 0:
             if cls._pending_approvals[auth_token]["status"] == "APPROVED":
                 print(f"[Approval Gateway] ✅ Auth-Token {auth_token} signed! Resuming execution.")
                 return True
+            elif cls._pending_approvals[auth_token]["status"] == "DENIED":
+                print(f"[Approval Gateway] ❌ Auth-Token {auth_token} explicitly denied! Aborting execution.")
+                return False
             time.sleep(1)
             timeout -= 1
             

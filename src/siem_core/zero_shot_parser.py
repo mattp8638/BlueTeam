@@ -12,21 +12,70 @@ class ZeroShotParser:
     def _call_llm(cls, prompt: str) -> str:
         """
         Uses the local HuggingFace text-generation pipeline if available.
-        For this refactor, we are using the 'transformers' library directly.
+        Attempts to reuse the chat pipeline from the API server (main.py) to save memory.
         """
         try:
+            import sys
+            import os
             from transformers import pipeline
-            # Note: For zero-shot entity extraction/JSON generation, a text-generation or
-            # highly tuned zero-shot-classification model is required.
-            # We wrap it in a lazy-loaded pipeline just like the classifier.
-            if not hasattr(cls, '_pipe'):
-                cls._pipe = pipeline("text-generation", model="gpt2") # Placeholder for user's text-gen model
+            
+            # Check if there is a shared pipeline loaded in the API server
+            shared_pipe = None
+            shared_lock = None
+            main_module = sys.modules.get("src.nerve_center.api.main")
+            if main_module is not None:
+                shared_pipe = getattr(main_module, "chat_model", None)
+                shared_lock = getattr(main_module, "chat_model_lock", None)
+                
+            if shared_pipe is not None:
+                # Use the shared pipeline
+                if shared_lock is not None:
+                    with shared_lock:
+                        result = shared_pipe(
+                            prompt, 
+                            max_new_tokens=150, 
+                            do_sample=True, 
+                            temperature=0.7, 
+                            repetition_penalty=1.1,
+                            clean_up_tokenization_spaces=False
+                        )
+                else:
+                    result = shared_pipe(
+                        prompt, 
+                        max_new_tokens=150, 
+                        do_sample=True, 
+                        temperature=0.7, 
+                        repetition_penalty=1.1,
+                        clean_up_tokenization_spaces=False
+                    )
+                if result:
+                    return result[0]['generated_text']
+                return None
 
-            result = cls._pipe(prompt, max_length=150, num_return_sequences=1)
-            if result:
-                return result[0]['generated_text']
+            # Fallback: lazy load a local pipeline if shared pipeline is not present
+            if not hasattr(cls, '_pipe') or cls._pipe is None:
+                model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+                try:
+                    cls._pipe = pipeline("text-generation", model=model_name)
+                except Exception:
+                    try:
+                        cls._pipe = pipeline("text-generation", model="gpt2")
+                    except Exception:
+                        cls._pipe = None
+
+            if cls._pipe is not None:
+                result = cls._pipe(
+                    prompt, 
+                    max_new_tokens=150, 
+                    do_sample=True, 
+                    temperature=0.7, 
+                    repetition_penalty=1.1,
+                    clean_up_tokenization_spaces=False
+                )
+                if result:
+                    return result[0]['generated_text']
         except Exception as e:
-            # Fallback to simulation if AI is offline/not installed
+            print(f"[Zero-Shot SLM Error] {e}")
             return None
 
     @classmethod

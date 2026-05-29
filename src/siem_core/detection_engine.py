@@ -65,11 +65,23 @@ class DetectionEngine:
             label = ai_result.get("label", "").upper()
             score = ai_result.get("score", 0.0)
 
-            # Assuming the model returns labels like 'MALICIOUS', 'ANOMALY', etc.
-            if label in ["MALICIOUS", "ANOMALY", "ATTACK"] and score > 0.85:
-                print(f"[Detection Engine] AI Model flagged event! Label: {label} (Confidence: {score:.2f})")
-                matched_rules.append(f"AI_MODEL_{label}")
+            # Map Roberta sequence classification model output labels (LABEL_0 to LABEL_5)
+            # from AI/config.json and label_map.json
+            label_map = {
+                "LABEL_0": "covering_tracks",
+                "LABEL_1": "gaining_access",
+                "LABEL_2": "maintaining_access",
+                "LABEL_3": "other",
+                "LABEL_4": "reconnaissance",
+                "LABEL_5": "scanning"
+            }
+            threat_phase = label_map.get(label, label.lower())
+
+            if threat_phase != "other" and score > 0.85:
+                print(f"[Detection Engine] AI Model flagged event! Phase: {threat_phase} (Confidence: {score:.2f})")
+                matched_rules.append(f"AI_MODEL_{threat_phase.upper()}")
                 tags.add("AI_Generated")
+                tags.add(threat_phase)
 
                 # AI overrides to High severity if it wasn't already Critical
                 if highest_severity not in ["Critical", "High"]:
@@ -78,7 +90,7 @@ class DetectionEngine:
                 # Annotate the specific AI score into the event
                 if "ai_analysis" not in ocsf_event:
                     ocsf_event["ai_analysis"] = {}
-                ocsf_event["ai_analysis"]["classification"] = label
+                ocsf_event["ai_analysis"]["classification"] = threat_phase
                 ocsf_event["ai_analysis"]["confidence"] = score
 
         # 3. Final Annotation

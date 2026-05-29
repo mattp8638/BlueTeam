@@ -27,9 +27,17 @@ class IRDatabase:
                 status TEXT,
                 severity TEXT,
                 created_at TEXT,
-                sla_deadline TEXT
+                sla_deadline TEXT,
+                assignee TEXT
             )
         ''')
+        
+        # Dynamically upgrade schema for existing DBs
+        try:
+            cursor.execute("ALTER TABLE tickets ADD COLUMN assignee TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         
         # Merkle Ledger Table
         cursor.execute('''
@@ -51,6 +59,36 @@ class IRDatabase:
                 pki_signature TEXT,
                 encrypted_path TEXT,
                 timestamp TEXT
+            )
+        ''')
+
+        # Quarantined Files Threat Vault
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quarantine (
+                file_hash TEXT PRIMARY KEY,
+                file_name TEXT,
+                file_path TEXT,
+                device_id TEXT,
+                hostname TEXT,
+                ip_address TEXT,
+                status TEXT,
+                threat_name TEXT,
+                confidence REAL,
+                timestamp TEXT,
+                sandbox_report TEXT
+            )
+        ''')
+
+        # SOAR Execution Logs History
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS soar_history (
+                execution_id TEXT PRIMARY KEY,
+                playbook_name TEXT,
+                target_ip TEXT,
+                status TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                log_output TEXT
             )
         ''')
         

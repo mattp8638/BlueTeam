@@ -21,8 +21,15 @@ class DagOrchestrator:
         # 1. Synthesize Playbook
         playbook = self.synthesizer.synthesize_playbook(ocsf_event)
         
+        # Translate to human-readable Markdown for analysis audits
+        playbook_md = PlaybookTranslator.to_markdown(playbook, ocsf_event)
+        
         # Log state to IR Ledger
-        MerkleLedger.append_transaction(ticket_id, "SOAR_PLAYBOOK_GENERATED", {"playbook_name": playbook.get("name")})
+        MerkleLedger.append_transaction(ticket_id, "SOAR_PLAYBOOK_GENERATED", {
+            "playbook_name": playbook.get("name"),
+            "playbook_id": playbook.get("id"),
+            "playbook_markdown": playbook_md
+        })
         
         # 2. Guardrail Scan
         is_safe = self.guardrail.scan_playbook(playbook)

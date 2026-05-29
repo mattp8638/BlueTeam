@@ -32,18 +32,71 @@ class AIReportingEngine:
 
     def _call_llm(self, prompt: str) -> str:
         """
-        Helper method to invoke a local HuggingFace text-generation pipeline.
+        Uses the local HuggingFace text-generation pipeline if available.
+        Attempts to reuse the chat pipeline from the API server (main.py) to save memory.
         """
         try:
+            import sys
+            import os
             from transformers import pipeline
-            if not hasattr(self, '_pipe'):
-                self._pipe = pipeline("text-generation", model="gpt2") # Placeholder
+            
+            # Check if there is a shared pipeline loaded in the API server
+            shared_pipe = None
+            shared_lock = None
+            main_module = sys.modules.get("src.nerve_center.api.main")
+            if main_module is not None:
+                shared_pipe = getattr(main_module, "chat_model", None)
+                shared_lock = getattr(main_module, "chat_model_lock", None)
+                
+            if shared_pipe is not None:
+                # Use the shared pipeline
+                if shared_lock is not None:
+                    with shared_lock:
+                        result = shared_pipe(
+                            prompt, 
+                            max_new_tokens=250, 
+                            do_sample=True, 
+                            temperature=0.7, 
+                            repetition_penalty=1.1,
+                            clean_up_tokenization_spaces=False
+                        )
+                else:
+                    result = shared_pipe(
+                        prompt, 
+                        max_new_tokens=250, 
+                        do_sample=True, 
+                        temperature=0.7, 
+                        repetition_penalty=1.1,
+                        clean_up_tokenization_spaces=False
+                    )
+                if result:
+                    return result[0]['generated_text']
+                return None
 
-            result = self._pipe(prompt, max_length=500, num_return_sequences=1)
-            if result:
-                return result[0]['generated_text']
+            # Fallback: lazy load a local pipeline if shared pipeline is not present
+            if not hasattr(self, '_pipe') or self._pipe is None:
+                model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+                try:
+                    self._pipe = pipeline("text-generation", model=model_name)
+                except Exception:
+                    try:
+                        self._pipe = pipeline("text-generation", model="gpt2")
+                    except Exception:
+                        self._pipe = None
+
+            if self._pipe is not None:
+                result = self._pipe(
+                    prompt, 
+                    max_new_tokens=250, 
+                    do_sample=True, 
+                    temperature=0.7, 
+                    repetition_penalty=1.1,
+                    clean_up_tokenization_spaces=False
+                )
+                if result:
+                    return result[0]['generated_text']
         except Exception as e:
-            # Fallback to simulation if AI is offline
+            print(f"[AI Reporting LLM Error] {e}")
             return None
 
     def generate_rca(self, ticket_id: str, raw_history: str) -> str:

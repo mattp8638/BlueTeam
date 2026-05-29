@@ -13,12 +13,18 @@ class LocalAIClassifier:
     def get_pipeline(cls):
         if cls._pipeline is None:
             try:
-                logger.info("Loading HuggingFace model: MattP30098638/PenTest-AI...")
-                # We wrap the import here so the entire platform doesn't crash if 'transformers' isn't installed yet
                 from transformers import pipeline
+                import os
 
-                # Load the classification pipeline directly
-                cls._pipeline = pipeline("text-classification", model="MattP30098638/PenTest-AI")
+                # Look for local model in AI/ folder under repository root
+                model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "AI"))
+                if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "model.safetensors")):
+                    logger.info(f"Loading local HuggingFace model from: {model_path}...")
+                    cls._pipeline = pipeline("text-classification", model=model_path, tokenizer=model_path)
+                else:
+                    logger.info("Local model not found. Loading remote model: MattP30098638/PenTest-AI...")
+                    cls._pipeline = pipeline("text-classification", model="MattP30098638/PenTest-AI")
+                
                 logger.info("HuggingFace model loaded successfully.")
 
             except ImportError:

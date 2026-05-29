@@ -22,5 +22,5 @@ As the platform moves towards production deployment capable of handling thousand
 - **Action:** Wire the `POST /api/soar/execute` FastAPI endpoint to the `DagOrchestrator` in `src/soar_core` so that clicking the "Isolate Host" button in the React UI actually executes physical Python isolation scripts on the endpoint via reverse-shell or polling commands.
 
 ### 4. Enhance the AI Reporting Generator
-- **Context:** The AI Anomaly Detection is fully integrated, but the `AIReportingEngine` is currently using a placeholder generation model (`gpt2`).
-- **Action:** Once your custom text-generation model is fully trained for Root Cause Analysis, update the pipeline declaration in `src/ir_core/ai_reporting_engine.py` to point to your new model tag, completing the full end-to-end AI automation flow.
+- **Context:** The AI Anomaly Detection is fully integrated, but the `AIReportingEngine` is currently using a fallback generation model (defaulting to `Qwen/Qwen2.5-0.5B-Instruct`, with fallback to `gpt2`).
+- **Action:** Once your custom text-generation model is fully trained for Root Cause Analysis, update the pipeline declaration in `src/ir_core/ai_reporting_engine.py` or the `PEN_TEST_CHAT_MODEL` environment variable to point to your new model tag, completing the full end-to-end AI automation flow.
