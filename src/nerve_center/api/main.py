@@ -6,6 +6,15 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 os.environ["HF_HUB_DISABLE_WARNINGS"] = "1"
 warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
+
+import logging
+try:
+    import transformers
+    transformers.logging.set_verbosity_error()
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+except ImportError:
+    pass
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

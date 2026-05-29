@@ -22,6 +22,14 @@ class ZeroShotParser:
             os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
             os.environ["HF_HUB_DISABLE_WARNINGS"] = "1"
             warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
+            import logging
+            try:
+                import transformers
+                transformers.logging.set_verbosity_error()
+                logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+            except ImportError:
+                pass
+
             from transformers import pipeline
             
             # Check if there is a shared pipeline loaded in the API server
