@@ -17,6 +17,11 @@ class ZeroShotParser:
         try:
             import sys
             import os
+            import warnings
+            os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+            os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+            os.environ["HF_HUB_DISABLE_WARNINGS"] = "1"
+            warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
             from transformers import pipeline
             
             # Check if there is a shared pipeline loaded in the API server
@@ -33,7 +38,8 @@ class ZeroShotParser:
                     with shared_lock:
                         result = shared_pipe(
                             prompt, 
-                            max_new_tokens=150, 
+                            max_new_tokens=150,
+                            max_length=None,
                             do_sample=True, 
                             temperature=0.7, 
                             repetition_penalty=1.1,
@@ -42,7 +48,8 @@ class ZeroShotParser:
                 else:
                     result = shared_pipe(
                         prompt, 
-                        max_new_tokens=150, 
+                        max_new_tokens=150,
+                            max_length=None,
                         do_sample=True, 
                         temperature=0.7, 
                         repetition_penalty=1.1,
@@ -54,19 +61,20 @@ class ZeroShotParser:
 
             # Fallback: lazy load a local pipeline if shared pipeline is not present
             if not hasattr(cls, '_pipe') or cls._pipe is None:
-                model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+                model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "HuggingFaceTB/SmolLM2-1.7B-Instruct")
                 try:
                     cls._pipe = pipeline("text-generation", model=model_name)
                 except Exception:
                     try:
-                        cls._pipe = pipeline("text-generation", model="gpt2")
+                        cls._pipe = pipeline("text-generation", model="HuggingFaceTB/SmolLM2-360M-Instruct")
                     except Exception:
                         cls._pipe = None
 
             if cls._pipe is not None:
                 result = cls._pipe(
                     prompt, 
-                    max_new_tokens=150, 
+                    max_new_tokens=150,
+                            max_length=None,
                     do_sample=True, 
                     temperature=0.7, 
                     repetition_penalty=1.1,
