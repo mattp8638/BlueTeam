@@ -1,5 +1,11 @@
 import os
 import sys
+import warnings
+
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+os.environ["HF_HUB_DISABLE_WARNINGS"] = "1"
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -332,16 +338,16 @@ async def load_hf_model():
             print(f"Loading remote model '{model_name}' (device={device})")
             cls = pipeline("text-classification", model=model_name, device=device)
 
-        chat_model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+        chat_model_name = os.environ.get("PEN_TEST_CHAT_MODEL", "HuggingFaceTB/SmolLM2-1.7B-Instruct")
         try:
             print(f"Loading chat model '{chat_model_name}' (device={device})...")
             chat_model = pipeline("text-generation", model=chat_model_name, device=device)
         except Exception as e:
-            print(f"WARNING: Could not load primary chat model '{chat_model_name}': {e}. Falling back to 'gpt2'...")
+            print(f"WARNING: Could not load primary chat model '{chat_model_name}': {e}. Falling back to 'HuggingFaceTB/SmolLM2-360M-Instruct'...")
             try:
-                chat_model = pipeline("text-generation", model="gpt2", device=device)
+                chat_model = pipeline("text-generation", model="HuggingFaceTB/SmolLM2-360M-Instruct", device=device)
             except Exception as fallback_e:
-                print(f"WARNING: Could not load fallback chat model 'gpt2': {fallback_e}")
+                print(f"WARNING: Could not load fallback chat model 'HuggingFaceTB/SmolLM2-360M-Instruct': {fallback_e}")
                 chat_model = None
 
         # try to load a zero-shot classification pipeline for flexible classification
@@ -1222,6 +1228,7 @@ async def ai_chat(request: Request):
                             res = chat_model(
                                 messages,
                                 max_new_tokens=150,
+                                max_length=None,
                                 do_sample=True,
                                 temperature=0.7,
                                 top_p=0.9,
@@ -1259,10 +1266,10 @@ async def ai_chat(request: Request):
                             res = chat_model(
                                 prompt,
                                 max_new_tokens=100,
+                                max_length=None,
                                 num_return_sequences=1,
                                 truncation=True,
-                                pad_token_id=50256,
-                                do_sample=True,
+                                                                do_sample=True,
                                 temperature=0.7,
                                 top_p=0.9,
                                 repetition_penalty=1.2,
