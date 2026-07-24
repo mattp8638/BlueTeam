@@ -276,54 +276,54 @@ class AttackOrchestrator:
         print(f"[RISK LEVEL] {risk_level.value}")
         print(f"{'='*80}")
         
-        # High and Critical risk phases require explicit approval
-        if risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
-            approval_token = self.approval_gateway.request_approval(
-                action_type="PHASE_TRANSITION",
-                operation_id=self.attack_id,
-                analyst_id=analyst_id,
-                details=f"Transition from {self.current_phase.value} to {new_phase.value}",
-                risk_level=risk_level.value
-            )
-            
-            approved = self.approval_gateway.wait_for_approval(
-                approval_token, 
-                timeout=300
-            )
-            
-            if not approved:
-                print(f"[Attack Orchestrator] Phase transition DENIED or TIMED OUT")
-                self.attack_ledger.log_denial(
-                    self.attack_id,
-                    "PHASE_TRANSITION",
-                    f"{self.current_phase.value} -> {new_phase.value}",
-                    analyst_id
-                )
-                return False
-            
-            self.attack_ledger.log_approval(
+        # ALL phase transitions require explicit human approval for security
+        print(f"[Attack Orchestrator] HUMAN APPROVAL REQUIRED for phase transition")
+        
+        approval_token = self.approval_gateway.request_approval(
+            action_type="PHASE_TRANSITION",
+            operation_id=self.attack_id,
+            analyst_id=analyst_id,
+            details=f"Transition from {self.current_phase.value} to {new_phase.value}",
+            risk_level=risk_level.value
+        )
+        
+        approved = self.approval_gateway.wait_for_approval(
+            approval_token, 
+            timeout=300
+        )
+        
+        if not approved:
+            print(f"[Attack Orchestrator] Phase transition DENIED or TIMED OUT")
+            self.attack_ledger.log_denial(
                 self.attack_id,
                 "PHASE_TRANSITION",
-                analyst_id,
-                approval_token
+                f"{self.current_phase.value} -> {new_phase.value}",
+                analyst_id
             )
+            return False
         
-        # Medium risk phases require safety validation
-        elif risk_level == RiskLevel.MEDIUM:
-            safety_check = self.safety_validator.validate_phase_transition(
-                self.current_phase,
-                new_phase,
-                self.target_scope
+        self.attack_ledger.log_approval(
+            self.attack_id,
+            "PHASE_TRANSITION",
+            analyst_id,
+            approval_token
+        )
+        
+        # Also perform safety validation for all transitions
+        safety_check = self.safety_validator.validate_phase_transition(
+            self.current_phase,
+            new_phase,
+            self.target_scope
+        )
+        
+        if not safety_check['valid']:
+            print(f"[Attack Orchestrator] Phase transition BLOCKED by safety validation")
+            print(f"Reason: {safety_check['reason']}")
+            self.attack_ledger.log_safety_violation(
+                self.attack_id,
+                safety_check['reason']
             )
-            
-            if not safety_check['valid']:
-                print(f"[Attack Orchestrator] Phase transition BLOCKED by safety validation")
-                print(f"Reason: {safety_check['reason']}")
-                self.attack_ledger.log_safety_violation(
-                    self.attack_id,
-                    safety_check['reason']
-                )
-                return False
+            return False
         
         # Log the transition
         self.attack_ledger.log_phase_transition(
