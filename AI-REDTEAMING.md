@@ -247,7 +247,7 @@ success = orchestrator.transition_to_phase(
     analyst_id="analyst-001"
 )
 
-# High and Critical risk phases require explicit approval
+# **ALL phase transitions require explicit human approval** for maximum security
 ```
 
 ### 3. Module Execution
