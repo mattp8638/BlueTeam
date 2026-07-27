@@ -1,0 +1,254 @@
+---
+# Ansible Playbook: C2 Server Deployment
+# Deploys a complete C2 server for AI-RedTeaming operations
+
+- name: Deploy C2 Server
+  hosts: c2_servers
+  become: yes
+  vars:
+    c2_user: redteam
+    c2_group: redteam
+    c2_home: /opt/redteam
+    c2_venv: "{{ c2_home }}/venv"
+    c2_app: "{{ c2_home }}/c2_server"
+    c2_port: 8080
+    c2_domain: "{{ c2_domain | default('c2.example.com') }}"
+    c2_ssl_cert: /etc/letsencrypt/live/{{ c2_domain }}/fullchain.pem
+    c2_ssl_key: /etc/letsencrypt/live/{{ c2_domain }}/privkey.pem
+    c2_auth_token: "{{ c2_auth_token | default(lookup('password', '/dev/null length=32 chars=ascii_letters,digits')) }}"
+    
+  tasks:
+    # Update system
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+      
+    # Install dependencies
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - python3-dev
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+          - git
+          - curl
+          - wget
+          - build-essential
+          - libssl-dev
+          - libffi-dev
+          - zlib1g-dev
+        state: present
+      
+    # Create C2 user
+    - name: Create C2 user group
+      group:
+        name: "{{ c2_group }}"
+        state: present
+        system: yes
+      
+    - name: Create C2 user
+      user:
+        name: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        home: "{{ c2_home }}"
+        shell: /bin/bash
+        system: yes
+        create_home: yes
+      
+    # Setup directories
+    - name: Create C2 directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        mode: '0750'
+      loop:
+        - "{{ c2_home }}"
+        - "{{ c2_app }}"
+        - "{{ c2_home }}/logs"
+        - "{{ c2_home }}/payloads"
+        - "{{ c2_home }}/downloads"
+      
+    # Setup Python virtual environment
+    - name: Create Python virtual environment
+      command: python3 -m venv "{{ c2_venv }}"
+      args:
+        creates: "{{ c2_venv }}/bin/python"
+      
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ c2_app }}/requirements.txt"
+        virtualenv: "{{ c2_venv }}"
+        virtualenv_python: python3
+      
+    # Deploy C2 server code
+    - name: Copy C2 server files
+      copy:
+        src: "{{ playbook_dir }}/../../src/redteam_core/c2_framework/"
+        dest: "{{ c2_app }}/"
+        owner: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        mode: '0640'
+      
+    - name: Create C2 server configuration
+      template:
+        src: c2_server_config.py.j2
+        dest: "{{ c2_app }}/config.py"
+        owner: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        mode: '0640'
+      
+    - name: Create C2 server main script
+      template:
+        src: c2_server_main.py.j2
+        dest: "{{ c2_app }}/main.py"
+        owner: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        mode: '0750'
+      
+    - name: Create requirements.txt
+      copy:
+        content: |
+          aiohttp==3.8.4
+          requests==2.28.2
+          psutil==5.9.4
+          python-dateutil==2.8.2
+        dest: "{{ c2_app }}/requirements.txt"
+        owner: "{{ c2_user }}"
+        group: "{{ c2_group }}"
+        mode: '0644'
+      
+    # Setup systemd service
+    - name: Create systemd service file
+      template:
+        src: redteam-c2.service.j2
+        dest: /etc/systemd/system/redteam-c2.service
+        owner: root
+        group: root
+        mode: '0644'
+      
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+      
+    - name: Enable C2 service
+      systemd:
+        name: redteam-c2
+        enabled: yes
+        state: started
+      
+    # Setup nginx reverse proxy
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      
+    - name: Create nginx configuration
+      template:
+        src: nginx_c2.conf.j2
+        dest: /etc/nginx/sites-available/redteam-c2
+        owner: root
+        group: root
+        mode: '0644'
+      
+    - name: Enable nginx site
+      file:
+        src: /etc/nginx/sites-available/redteam-c2
+        dest: /etc/nginx/sites-enabled/redteam-c2
+        state: link
+        owner: root
+        group: root
+      
+    - name: Test nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Restart nginx
+      systemd:
+        name: nginx
+        state: restarted
+      when: nginx_test.rc == 0
+      
+    # Setup SSL with Let's Encrypt
+    - name: Ensure certbot is installed
+      apt:
+        name: certbot
+        state: present
+      
+    - name: Obtain SSL certificate
+      command: >
+        certbot --nginx -d {{ c2_domain }} --non-interactive --agree-tos
+        -m admin@{{ c2_domain }} --redirect --keep-until-expiring
+      args:
+        creates: "{{ c2_ssl_cert }}"
+      register: certbot_result
+      ignore_errors: yes
+      
+    - name: Restart nginx after SSL setup
+      systemd:
+        name: nginx
+        state: restarted
+      when: certbot_result.changed
+      
+    # Setup firewall
+    - name: Allow C2 port in UFW
+      ufw:
+        rule: allow
+        port: "{{ c2_port }}"
+        proto: tcp
+      when: ansible_os_family == 'Debian'
+      
+    - name: Allow HTTP in UFW
+      ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+      when: ansible_os_family == 'Debian'
+      
+    - name: Allow HTTPS in UFW
+      ufw:
+        rule: allow
+        port: 443
+        proto: tcp
+      when: ansible_os_family == 'Debian'
+      
+    - name: Enable UFW
+      ufw:
+        state: enabled
+      when: ansible_os_family == 'Debian'
+      
+    # Setup log rotation
+    - name: Create log rotation configuration
+      template:
+        src: logrotate_c2.j2
+        dest: /etc/logrotate.d/redteam-c2
+        owner: root
+        group: root
+        mode: '0644'
+      
+    # Print deployment info
+    - name: Display deployment information
+      debug:
+        msg: |
+          C2 Server Deployment Complete
+          =============================
+          URL: https://{{ c2_domain }}
+          Port: {{ c2_port }}
+          User: {{ c2_user }}
+          Auth Token: {{ c2_auth_token[:16] }}...
+          
+          Service: redteam-c2
+          Status: systemctl status redteam-c2
+          Logs: journalctl -u redteam-c2 -f
