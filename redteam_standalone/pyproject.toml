@@ -1,0 +1,19 @@
+[project]
+name = "redteam-standalone"
+version = "1.0.0"
+description = "Standalone GUI-first redteam platform with full capability for offensive security operations"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
+    "pydantic>=2.0.0",
+    "python-dateutil>=2.8.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+

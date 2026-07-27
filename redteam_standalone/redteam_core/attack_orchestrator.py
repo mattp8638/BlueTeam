@@ -655,21 +655,33 @@ class AttackOrchestrator:
         if module_name not in self._attack_modules:
             try:
                 # Dynamic import based on module name
-                # Try both the module name and lowercase version
-                module_path = f"src.redteam_core.attack_modules.{module_name}"
+                # Try redteam_core first, then src.redteam_core fallback
                 module_class = module_name.replace('_', '').capitalize()
                 
                 import importlib
-                try:
-                    module = importlib.import_module(module_path)
+                module = None
+                for path in [
+                    f"redteam_core.attack_modules.{module_name}",
+                    f"redteam_core.attack_modules.{module_name.lower()}",
+                    f"src.redteam_core.attack_modules.{module_name}",
+                    f"src.redteam_core.attack_modules.{module_name.lower()}",
+                ]:
+                    try:
+                        module = importlib.import_module(path)
+                        break
+                    except ImportError:
+                        continue
+
+                if module and hasattr(module, f"{module_class}Module"):
                     self._attack_modules[module_name] = getattr(module, f"{module_class}Module")()
-                except ImportError:
-                    # Try lowercase
-                    module_path_lower = f"src.redteam_core.attack_modules.{module_name.lower()}"
-                    module = importlib.import_module(module_path_lower)
-                    self._attack_modules[module_name] = getattr(module, f"{module_class}Module")()
-                
-            except ImportError as e:
+                elif module:
+                    # Try finding any class ending with Module
+                    for attr in dir(module):
+                        if attr.endswith("Module") and attr != "BaseAttackModule":
+                            self._attack_modules[module_name] = getattr(module, attr)()
+                            break
+
+            except Exception as e:
                 print(f"[Attack Orchestrator] Failed to load module {module_name}: {e}")
                 return None
         

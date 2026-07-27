@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standalone RedTeam Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Autonomous RedTeam Dashboard</h1>
+            <p>Mission control for coordinated offensive security operations, planning, execution, and reporting.</p>
+        </header>
+
+        <div id="alerts"></div>
+
+        <!-- Summary Cards -->
+        <div class="grid">
+            <div class="card">
+                <h3>Active Operation</h3>
+                <div class="value" id="operation-id">--</div>
+            </div>
+            <div class="card">
+                <h3>Status</h3>
+                <div class="value" id="operation-status">--</div>
+            </div>
+            <div class="card">
+                <h3>Tasks Planned</h3>
+                <div class="value" id="task-count">0</div>
+            </div>
+            <div class="card">
+                <h3>Findings</h3>
+                <div class="value" id="finding-count">0</div>
+            </div>
+        </div>
+
+        <!-- Main Operations Section -->
+        <div class="section">
+            <h2>Operations Management</h2>
+            <div class="tabs">
+                <button class="tab-button active" onclick="switchTab('create-op')">Create Operation</button>
+                <button class="tab-button" onclick="switchTab('list-ops')">List Operations</button>
+            </div>
+
+            <div id="create-op" class="tab-content active">
+                <div class="row">
+                    <div>
+                        <div class="form-group">
+                            <label>Operation Name</label>
+                            <input type="text" id="op-name" placeholder="e.g., Internal Security Assessment">
+                        </div>
+                        <div class="form-group">
+                            <label>Target Scope (comma-separated)</label>
+                            <input type="text" id="op-targets" placeholder="e.g., 192.168.1.0/24, 10.0.0.0/8">
+                        </div>
+                        <div class="form-group">
+                            <label>Allowed Methods (comma-separated)</label>
+                            <input type="text" id="op-methods" placeholder="e.g., reconnaissance, scanning, exploitation" value="reconnaissance, scanning, exploitation">
+                        </div>
+                        <button onclick="createOperation()" class="success">Create Operation</button>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <label>Rules of Engagement</label>
+                            <textarea id="op-roe" rows="6" placeholder="Enter ROE details...">Authorized for testing only. No unauthorized access. Document all actions taken.</textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="list-ops" class="tab-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Operation ID</th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Phase</th>
+                            <th>Targets</th>
+                            <th>Tasks</th>
+                            <th>Findings</th>
+                        </tr>
+                    </thead>
+                    <tbody id="operations-list">
+                        <tr><td colspan="7" class="loading">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Task Management Section -->
+        <div class="section">
+            <h2>Task Planning & Execution</h2>
+            <div class="row full">
+                <div>
+                    <button onclick="buildTaskPlan()" class="success">Build Default Task Plan</button>
+                    <button onclick="runAllTasks()" class="warning" style="margin-left: 10px;">Execute All Tasks</button>
+                    <button onclick="refreshTasks()" class="secondary" style="margin-left: 10px;">Refresh Tasks</button>
+                </div>
+            </div>
+            <table style="margin-top: 20px;">
+                <thead>
+                    <tr>
+                        <th>Task ID</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                        <th>Summary</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="tasks-list">
+                    <tr><td colspan="6" class="loading">No tasks yet. Create an operation first.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Findings Section -->
+        <div class="section">
+            <h2>Findings & Evidence</h2>
+            <div class="row">
+                <div>
+                    <div class="form-group">
+                        <label>Finding Title</label>
+                        <input type="text" id="finding-title" placeholder="e.g., Weak Password Policy Detected">
+                    </div>
+                    <div class="form-group">
+                        <label>Severity</label>
+                        <select id="finding-severity">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                    <button onclick="addFinding()" class="success">Add Finding</button>
+                </div>
+                <div>
+                    <div class="form-group">
+                        <label>Evidence / Description</label>
+                        <textarea id="finding-evidence" rows="4" placeholder="Describe the finding and evidence..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 30px; margin-bottom: 15px;">Recent Findings</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Severity</th>
+                        <th>Evidence</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="findings-list">
+                    <tr><td colspan="5" class="loading">No findings yet.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Operation Control Section -->
+        <div class="section">
+            <h2>Operation Control</h2>
+            <div class="row full">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+                    <div>
+                        <label>Change Phase</label>
+                        <select id="phase-select" onchange="changePhase()">
+                            <option value="">Select Phase...</option>
+                            <option value="PLANNING">Planning</option>
+                            <option value="RECON">Reconnaissance</option>
+                            <option value="EXPLOITATION">Exploitation</option>
+                            <option value="REPORTING">Reporting</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Change Status</label>
+                        <select id="status-select" onchange="changeStatus()">
+                            <option value="">Select Status...</option>
+                            <option value="PENDING">Pending</option>
+                            <option value="APPROVED">Approved</option>
+                            <option value="RUNNING">Running</option>
+                            <option value="PAUSED">Paused</option>
+                            <option value="COMPLETED">Completed</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>&nbsp;</label>
+                        <button onclick="generateReport()" class="secondary">Generate Report</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentOperationId = null;
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (body) options.body = JSON.stringify(body);
+
+            try {
+                const response = await fetch(endpoint, options);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'API Error');
+                }
+                return await response.json();
+            } catch (error) {
+                showAlert('Error: ' + error.message, 'error');
+                throw error;
+            }
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function showAlert(message, type = 'success') {
+            const alertsDiv = document.getElementById('alerts');
+            const alert = document.createElement('div');
+            alert.className = `alert ${type}`;
+            alert.textContent = message;
+            alertsDiv.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        async function createOperation() {
+            const name = document.getElementById('op-name').value;
+            const targets = document.getElementById('op-targets').value.split(',').map(t => t.trim());
+            const methods = document.getElementById('op-methods').value.split(',').map(m => m.trim());
+
+            if (!name || !targets[0]) {
+                showAlert('Please enter operation name and targets', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall('/api/operations', 'POST', {
+                    operation_name: name,
+                    target_scope: { targets },
+                    rules_of_engagement: { allowed_methods: methods }
+                });
+
+                currentOperationId = data.operation_id;
+                document.getElementById('operation-id').textContent = currentOperationId.substring(0, 12) + '...';
+                document.getElementById('operation-status').textContent = data.status;
+
+                showAlert('Operation created successfully!', 'success');
+                document.getElementById('op-name').value = '';
+                document.getElementById('op-targets').value = '';
+                refreshDashboard();
+            } catch (error) {
+                // Already handled by apiCall
+            }
+        }
+
+        async function buildTaskPlan() {
+            if (!currentOperationId) {
+                showAlert('Create an operation first', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/api/operations/${currentOperationId}/plan`, 'POST');
+                showAlert('Task plan created with ' + data.task_ids.length + ' tasks', 'success');
+                refreshTasks();
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function runTask(taskId) {
+            if (!currentOperationId) return;
+
+            try {
+                await apiCall(`/api/operations/${currentOperationId}/tasks/${taskId}/run`, 'POST');
+                showAlert('Task executed successfully!', 'success');
+                refreshTasks();
+                refreshDashboard();
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function runAllTasks() {
+            if (!currentOperationId) {
+                showAlert('Create an operation first', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/api/operations/${currentOperationId}/tasks/run_all`, 'POST');
+                showAlert(`Executed ${data.executed_tasks} tasks successfully!`, 'success');
+                refreshTasks();
+                refreshDashboard();
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function refreshTasks() {
+            if (!currentOperationId) return;
+
+            try {
+                const data = await apiCall(`/api/operations/${currentOperationId}/tasks`);
+                const tbody = document.getElementById('tasks-list');
+
+                if (!data.tasks || data.tasks.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="loading">No tasks yet.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.tasks.map(task => `
+                    <tr>
+                        <td>${task.task_id}</td>
+                        <td>${task.name}</td>
+                        <td>${task.category}</td>
+                        <td><span class="badge ${task.status}">${task.status}</span></td>
+                        <td>${task.summary}</td>
+                        <td>
+                            ${task.status !== 'completed' ? 
+                                `<button onclick="runTask('${task.task_id}')" class="success" style="padding: 6px 12px; font-size: 0.85rem;">Execute</button>` :
+                                '<span class="badge completed">Done</span>'
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function addFinding() {
+            if (!currentOperationId) {
+                showAlert('Create an operation first', 'error');
+                return;
+            }
+
+            const title = document.getElementById('finding-title').value;
+            const severity = document.getElementById('finding-severity').value;
+            const evidence = document.getElementById('finding-evidence').value;
+
+            if (!title || !evidence) {
+                showAlert('Please enter finding title and evidence', 'error');
+                return;
+            }
+
+            try {
+                await apiCall(`/api/operations/${currentOperationId}/findings`, 'POST', {
+                    title,
+                    severity,
+                    evidence
+                });
+
+                showAlert('Finding added successfully!', 'success');
+                document.getElementById('finding-title').value = '';
+                document.getElementById('finding-evidence').value = '';
+                refreshDashboard();
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function refreshDashboard() {
+            try {
+                const data = await apiCall('/api/dashboard');
+                const summary = data.summary;
+
+                if (summary.operation_id && !currentOperationId) {
+                    currentOperationId = summary.operation_id;
+                    document.getElementById('operation-id').textContent = currentOperationId.substring(0, 12) + '...';
+                    document.getElementById('operation-status').textContent = summary.status || 'pending';
+                }
+
+                document.getElementById('task-count').textContent = summary.task_count;
+                document.getElementById('finding-count').textContent = summary.finding_count;
+
+                refreshTasks();
+                refreshFindings();
+                refreshOperations();
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function refreshFindings() {
+            if (!currentOperationId) return;
+
+            try {
+                const data = await apiCall(`/api/operations/${currentOperationId}/findings`);
+                const tbody = document.getElementById('findings-list');
+
+                if (!data.findings || data.findings.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="loading">No findings yet.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.findings.map(f => `
+                    <tr>
+                        <td>${f.finding_id}</td>
+                        <td>${f.title}</td>
+                        <td><span class="badge ${f.severity}">${f.severity}</span></td>
+                        <td>${f.evidence}</td>
+                        <td>${new Date(f.timestamp).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function refreshOperations() {
+            try {
+                const data = await apiCall('/api/operations');
+                const tbody = document.getElementById('operations-list');
+
+                if (!data.operations || data.operations.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="loading">No operations yet.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.operations.map(op => `
+                    <tr>
+                        <td>${op.operation_id.substring(0, 12)}</td>
+                        <td>${op.operation_name}</td>
+                        <td><span class="badge ${op.status}">${op.status}</span></td>
+                        <td>${op.phase || '--'}</td>
+                        <td>${op.target_count || 0}</td>
+                        <td>${op.task_count || 0}</td>
+                        <td>${op.finding_count || 0}</td>
+                    </tr>
+                `).join('');
+
+                if (data.operations.length > 0 && !currentOperationId) {
+                    currentOperationId = data.operations[0].operation_id;
+                }
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function changePhase() {
+            if (!currentOperationId) return;
+            const phase = document.getElementById('phase-select').value;
+            if (!phase) return;
+
+            try {
+                await apiCall(`/api/operations/${currentOperationId}/phase`, 'POST', { phase });
+                showAlert('Phase changed successfully!', 'success');
+                refreshDashboard();
+                document.getElementById('phase-select').value = '';
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function changeStatus() {
+            if (!currentOperationId) return;
+            const status = document.getElementById('status-select').value;
+            if (!status) return;
+
+            try {
+                await apiCall(`/api/operations/${currentOperationId}/status`, 'POST', { status });
+                showAlert('Status changed successfully!', 'success');
+                refreshDashboard();
+                document.getElementById('status-select').value = '';
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        async function generateReport() {
+            if (!currentOperationId) {
+                showAlert('Create an operation first', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/api/operations/${currentOperationId}/report`);
+                const report = JSON.stringify(data, null, 2);
+                
+                const blob = new Blob([report], { type: 'application/json' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `redteam-report-${currentOperationId}.json`;
+                a.click();
+                
+                showAlert('Report generated and downloaded!', 'success');
+            } catch (error) {
+                // Already handled
+            }
+        }
+
+        // Initial load
+        refreshDashboard();
+        setInterval(refreshDashboard, 5000); // Auto-refresh every 5 seconds
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -15,11 +15,18 @@ from datetime import datetime, timezone
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, AttackStatus
-from src.redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
-from src.redteam_core.reporting.attack_ledger import AttackLedger
-from src.redteam_core.reporting.evidence_collector import EvidenceCollector
-from src.redteam_core.blue_team_integration import BlueTeamIntegration
+try:
+    from redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, AttackStatus
+    from redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
+    from redteam_core.reporting.attack_ledger import AttackLedger
+    from redteam_core.reporting.evidence_collector import EvidenceCollector
+    from redteam_core.blue_team_integration import BlueTeamIntegration
+except ImportError:
+    from src.redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, AttackStatus
+    from src.redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
+    from src.redteam_core.reporting.attack_ledger import AttackLedger
+    from src.redteam_core.reporting.evidence_collector import EvidenceCollector
+    from src.redteam_core.blue_team_integration import BlueTeamIntegration
 
 
 def parse_args():
@@ -254,7 +261,7 @@ def main():
         elif args.command == 'test':
             # Run integration tests
             print("Running integration tests...")
-            from src.redteam_core.redteam_integration_test import main as test_main
+            from redteam_core.redteam_integration_test import main as test_main
             return test_main()
             
         elif args.command == 'list':

@@ -1,0 +1,5 @@
+evidence
+redteam_app
+redteam_core
+tests
+venv

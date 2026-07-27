@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: redteam-standalone
+Version: 1.0.0
+Summary: Standalone GUI-first redteam platform with full capability for offensive security operations
+Requires-Python: >=3.10
+Requires-Dist: flask>=3.0.0
+Requires-Dist: flask-cors>=4.0.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: python-dateutil>=2.8.0

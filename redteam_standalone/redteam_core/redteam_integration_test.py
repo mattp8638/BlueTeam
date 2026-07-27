@@ -10,16 +10,28 @@ import os
 import json
 from datetime import datetime, timezone, timedelta
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, RiskLevel, AttackStatus
-from src.redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
-from src.redteam_core.verification_gateways.safety_validator import SafetyValidator
-from src.redteam_core.verification_gateways.legal_compliance import LegalComplianceChecker, ComplianceFramework
-from src.redteam_core.reporting.attack_ledger import AttackLedger
-from src.redteam_core.reporting.evidence_collector import EvidenceCollector
-from src.redteam_core.blue_team_integration import BlueTeamIntegration
+try:
+    from redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, RiskLevel, AttackStatus
+    from redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
+    from redteam_core.verification_gateways.safety_validator import SafetyValidator
+    from redteam_core.verification_gateways.legal_compliance import LegalComplianceChecker, ComplianceFramework
+    from redteam_core.reporting.attack_ledger import AttackLedger
+    from redteam_core.reporting.evidence_collector import EvidenceCollector
+    from redteam_core.blue_team_integration import BlueTeamIntegration
+except ImportError:
+    from src.redteam_core.attack_orchestrator import AttackOrchestrator, AttackPhase, RiskLevel, AttackStatus
+    from src.redteam_core.verification_gateways.human_approval_gateway import HumanApprovalGateway
+    from src.redteam_core.verification_gateways.safety_validator import SafetyValidator
+    from src.redteam_core.verification_gateways.legal_compliance import LegalComplianceChecker, ComplianceFramework
+    from src.redteam_core.reporting.attack_ledger import AttackLedger
+    from src.redteam_core.reporting.evidence_collector import EvidenceCollector
+    from src.redteam_core.blue_team_integration import BlueTeamIntegration
 
 
 def test_human_approval_gateway():

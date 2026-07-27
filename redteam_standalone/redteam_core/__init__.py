@@ -32,6 +32,7 @@ from .verification_gateways.safety_validator import SafetyValidator
 from .verification_gateways.legal_compliance import LegalComplianceChecker
 from .reporting.attack_ledger import AttackLedger
 from .reporting.evidence_collector import EvidenceCollector
+from .blue_team_integration import BlueTeamIntegration
 
 __version__ = "1.0.0"
 __all__ = [
@@ -40,5 +41,7 @@ __all__ = [
     'SafetyValidator',
     'LegalComplianceChecker',
     'AttackLedger',
-    'EvidenceCollector'
+    'EvidenceCollector',
+    'BlueTeamIntegration',
 ]
+
